@@ -2873,8 +2873,8 @@ public class CrossfadeOverlayForm : Form
         int baseW = Math.Max(120, _settings.OverlayWidth);
         int baseH = Math.Max(50, _settings.OverlayHeight);
 
-        // Increased height for the bounding box so the carousel wings have plenty of room
-        int maxWingPx = (int)Math.Round(baseH * 0.82f);
+        // Increased vertical wing height so the background container has generous padding above and below
+        int maxWingPx = (int)Math.Round(baseH * 1.05f);
         int totalH = baseH + (maxWingPx * 2);
         int canvasW = baseW + 16;
 
