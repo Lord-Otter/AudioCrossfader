@@ -498,8 +498,8 @@ public class CrossfadeOverlayForm : Form
         string effectivePos = !string.IsNullOrEmpty(_assignedPosition) ? _assignedPosition : _settings.OverlayPosition;
         Rectangle bounds = targetScreen.Bounds;
         int baseX = bounds.Left + (bounds.Width - canvasW) / 2;
-        int bottomSafeY = bounds.Bottom - baseH - maxWingPx;
-        int topSafeY = bounds.Top + maxWingPx;
+        int bottomSafeY = bounds.Bottom - baseH - maxWingPx + 25;
+        int topSafeY = bounds.Top + maxWingPx - 25;
         int baseY = bottomSafeY;
 
         switch (effectivePos)
@@ -520,7 +520,7 @@ public class CrossfadeOverlayForm : Form
         }
 
         int desiredWindowTop = baseY - maxWingPx;
-        int clampedWindowTop = Math.Clamp(desiredWindowTop, bounds.Top + 8, Math.Max(bounds.Top + 8, bounds.Bottom - totalH - 8));
+        int clampedWindowTop = Math.Clamp(desiredWindowTop, bounds.Top + 8, bounds.Bottom - baseH);
 
         _stationaryCardOffsetY = maxWingPx;
 
