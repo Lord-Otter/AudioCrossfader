@@ -1,9 +1,18 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Windows.Media.Control;
 
 public class AudioCrossfaderWorker
 {
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+    private const int WM_APPCOMMAND = 0x0319;
+    private const int APPCOMMAND_MEDIA_PLAY = 46;
+    private const int APPCOMMAND_MEDIA_PAUSE = 47;
 
     private const int VK_SHIFT = 0x10;
     private const int VK_CONTROL = 0x11;
@@ -56,6 +65,7 @@ public class AudioCrossfaderWorker
     private int _detentDirection = 0;
     private int _cfCycleIndex = -1;
 
+    private readonly HashSet<string> _pausedProcessKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<CrossfadeOverlayForm> _overlays = new();
     private Thread? _workerThread;
     private CancellationTokenSource? _cts;
@@ -269,6 +279,7 @@ public class AudioCrossfaderWorker
     private void ResetAllConfiguredExecutables(AudioSessionCache sessionCache)
     {
         sessionCache.ForceRefresh();
+
         foreach (var exe in _settings.ResolveExecutables(_settings.Source1))
             sessionCache.SetVolumeForProcessKey(AppSettings.NormalizeProcessKey(exe), 1.0f);
         foreach (var exe in _settings.ResolveExecutables(_settings.Source2))
@@ -706,12 +717,16 @@ public class AudioCrossfaderWorker
 
             if (updateAudioSessions)
             {
+                bool app1ShouldPause = actualApp1Vol <= 0.001f;
+                bool app2ShouldPause = actualApp2Vol <= 0.001f;
+
                 var source1Targets = _settings.ResolveExecutables(_settings.Source1);
                 var source1Keys = new HashSet<string>(source1Targets.Select(AppSettings.NormalizeProcessKey), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var exe in source1Targets)
                 {
-                    sessionCache.SetVolumeForProcessKey(AppSettings.NormalizeProcessKey(exe), actualApp1Vol);
+                    string key = AppSettings.NormalizeProcessKey(exe);
+                    sessionCache.SetVolumeForProcessKey(key, actualApp1Vol);
                 }
 
                 var source2Targets = _settings.ResolveExecutables(_settings.Source2);

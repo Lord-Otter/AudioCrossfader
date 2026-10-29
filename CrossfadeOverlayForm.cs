@@ -281,24 +281,13 @@ public class CrossfadeOverlayForm : Form
     {
         if (string.IsNullOrEmpty(text) || textColor.A <= 4) return;
 
-        int shadowAlpha = (int)Math.Clamp(textColor.A * 0.88f, 0, 225);
-        using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb(shadowAlpha, 8, 8, 12));
+        // Clean single-offset shadow prevents muddy alpha buildup when window opacity is lowered
+        int shadowAlpha = (int)Math.Clamp(textColor.A * 0.65f, 0, 180);
+        using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb(shadowAlpha, 0, 0, 0));
+        RectangleF shadowRect = new RectangleF(layoutRect.X + 1f, layoutRect.Y + 1.2f, layoutRect.Width, layoutRect.Height);
 
-        ReadOnlySpan<PointF> offsets = stackalloc PointF[]
-        {
-            new PointF(-1f, 0f),
-            new PointF(1f, 0f),
-            new PointF(0f, -1f),
-            new PointF(0f, 1f),
-            new PointF(0f, 1.6f)
-        };
-
-        foreach (var off in offsets)
-        {
-            RectangleF sr = new RectangleF(layoutRect.X + off.X, layoutRect.Y + off.Y, layoutRect.Width, layoutRect.Height);
-            if (sf != null) g.DrawString(text, font, shadowBrush, sr, sf);
-            else g.DrawString(text, font, shadowBrush, sr.Location);
-        }
+        if (sf != null) g.DrawString(text, font, shadowBrush, shadowRect, sf);
+        else g.DrawString(text, font, shadowBrush, shadowRect.Location);
 
         using SolidBrush fgBrush = new SolidBrush(textColor);
         if (sf != null) g.DrawString(text, font, fgBrush, layoutRect, sf);
@@ -810,14 +799,14 @@ public class CrossfadeOverlayForm : Form
                 SizeF nameSize = g.MeasureString(namePart, font);
                 float nameBoxW = Math.Min(nameSize.Width + 4f, Math.Max(10f, curRight - bounds.X));
                 RectangleF nameRect = new RectangleF(curRight - nameBoxW, bounds.Y, nameBoxW, bounds.Height);
-                g.DrawString(namePart, font, textBrush, nameRect, sfRight);
+                DrawReadableString(g, namePart, font, textColorOverride, nameRect, sfRight);
                 curRight -= (nameSize.Width + pctGap);
             }
 
             if (showInlinePercent && curRight > bounds.X + 8f)
             {
                 RectangleF pctRect = new RectangleF(bounds.X, bounds.Y, curRight - bounds.X, bounds.Height);
-                g.DrawString(pctText, font, textBrush, pctRect, sfRight);
+                DrawReadableString(g, pctText, font, textColorOverride, pctRect, sfRight);
             }
         }
         else
@@ -835,14 +824,14 @@ public class CrossfadeOverlayForm : Form
                 SizeF nameSize = g.MeasureString(namePart, font);
                 float nameBoxW = Math.Min(nameSize.Width + 4f, Math.Max(10f, bounds.Right - curLeft));
                 RectangleF nameRect = new RectangleF(curLeft, bounds.Y, nameBoxW, bounds.Height);
-                g.DrawString(namePart, font, textBrush, nameRect, sfLeft);
+                DrawReadableString(g, namePart, font, textColorOverride, nameRect, sfLeft);
                 curLeft += (nameSize.Width + pctGap);
             }
 
             if (showInlinePercent && bounds.Right > curLeft + 8f)
             {
                 RectangleF pctRect = new RectangleF(curLeft, bounds.Y, bounds.Right - curLeft, bounds.Height);
-                g.DrawString(pctText, font, textBrush, pctRect, sfLeft);
+                DrawReadableString(g, pctText, font, textColorOverride, pctRect, sfLeft);
             }
         }
     }
@@ -1243,7 +1232,7 @@ public class CrossfadeOverlayForm : Form
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
 
             if (_masterOpacity > 0.005)
             {
@@ -1264,12 +1253,14 @@ public class CrossfadeOverlayForm : Form
             Point topPos = new Point(this.Left, this.Top);
             Size winSize = new Size(this.Width, this.Height);
             Point srcPos = new Point(0, 0);
+            double maxOpacity = Math.Clamp(_settings.OverlayOpacity, 10, 100) / 100.0;
+            double effectiveOpacity = _masterOpacity * maxOpacity;
 
             BLENDFUNCTION blend = new BLENDFUNCTION
             {
                 BlendOp = AC_SRC_OVER,
                 BlendFlags = 0,
-                SourceConstantAlpha = (byte)Math.Clamp((int)Math.Round(_masterOpacity * 255.0), 0, 255),
+                SourceConstantAlpha = (byte)Math.Clamp((int)Math.Round(effectiveOpacity * 255.0), 0, 255),
                 AlphaFormat = AC_SRC_ALPHA
             };
 

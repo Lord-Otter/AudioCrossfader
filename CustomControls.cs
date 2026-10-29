@@ -67,6 +67,188 @@ public class DarkContextMenuRenderer : ToolStripProfessionalRenderer
     }
 }
 
+// Custom Windows 11 Rounded Button (Used for Nav Tabs, Primary/Secondary Buttons, and Danger Buttons)
+public class ModernButton : Button
+{
+    private bool _isHovered = false;
+    private bool _isPressed = false;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CornerRadius { get; set; } = 6;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color BorderColor { get; set; } = Color.FromArgb(70, 70, 70);
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color HoverBackColor { get; set; } = Color.FromArgb(66, 66, 66);
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color PressedBackColor { get; set; } = Color.FromArgb(44, 44, 44);
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowBorder { get; set; } = true;
+
+    public ModernButton()
+    {
+        this.SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw |
+            ControlStyles.SupportsTransparentBackColor,
+            true);
+        this.FlatStyle = FlatStyle.Flat;
+        this.FlatAppearance.BorderSize = 0;
+        this.BackColor = Color.FromArgb(52, 52, 52);
+        this.ForeColor = Color.White;
+        this.Font = new Font("Segoe UI Semibold", 8.75f, FontStyle.Bold);
+        this.Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        base.OnMouseEnter(e);
+        _isHovered = true;
+        Invalidate();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _isHovered = false;
+        _isPressed = false;
+        Invalidate();
+    }
+
+    protected override void OnMouseDown(MouseEventArgs mevent)
+    {
+        base.OnMouseDown(mevent);
+        if (mevent.Button == MouseButtons.Left)
+        {
+            _isPressed = true;
+            Invalidate();
+        }
+    }
+
+    protected override void OnMouseUp(MouseEventArgs mevent)
+    {
+        base.OnMouseUp(mevent);
+        _isPressed = false;
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs pevent)
+    {
+        Graphics g = pevent.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(39, 39, 39);
+        if (parentBg == Color.Transparent && this.Parent is Win11CardPanel card)
+        {
+            parentBg = card.FillColor;
+        }
+        g.Clear(parentBg);
+
+        Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+
+        Color fill = this.BackColor;
+        if (!this.Enabled)
+        {
+            fill = Color.FromArgb(42, 42, 42);
+        }
+        else if (_isPressed)
+        {
+            fill = PressedBackColor;
+        }
+        else if (_isHovered)
+        {
+            fill = HoverBackColor;
+        }
+
+        using GraphicsPath path = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
+        using SolidBrush brush = new SolidBrush(fill);
+        g.FillPath(brush, path);
+
+        if (ShowBorder)
+        {
+            Color bCol = this.Enabled ? BorderColor : Color.FromArgb(55, 55, 55);
+            using Pen pen = new Pen(bCol, 1f);
+            g.DrawPath(pen, path);
+        }
+
+        Color textCol = this.Enabled ? this.ForeColor : Color.FromArgb(115, 115, 115);
+        TextRenderer.DrawText(
+            g,
+            this.Text,
+            this.Font,
+            this.ClientRectangle,
+            textCol,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+}
+
+// Custom Rounded Color Swatch Control
+public class RoundedColorSwatch : Panel
+{
+    private bool _isHovered = false;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color SwatchColor { get; set; } = Color.FromArgb(0, 168, 255);
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CornerRadius { get; set; } = 6;
+
+    public RoundedColorSwatch()
+    {
+        this.SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw,
+            true);
+        this.Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        base.OnMouseEnter(e);
+        _isHovered = true;
+        Invalidate();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _isHovered = false;
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(39, 39, 39);
+        if (parentBg == Color.Transparent && this.Parent is Win11CardPanel card)
+        {
+            parentBg = card.FillColor;
+        }
+        g.Clear(parentBg);
+
+        Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+
+        using GraphicsPath path = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
+        using SolidBrush fillBrush = new SolidBrush(SwatchColor);
+        g.FillPath(fillBrush, path);
+
+        Color borderCol = _isHovered ? Color.FromArgb(185, 185, 185) : Color.FromArgb(105, 105, 105);
+        using Pen borderPen = new Pen(borderCol, 1f);
+        g.DrawPath(borderPen, path);
+    }
+}
+
 // Custom Dark-Mode Scrollable Container
 public class DarkScrollPanel : Panel
 {
@@ -82,6 +264,10 @@ public class DarkScrollPanel : Panel
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Control.ControlCollection InnerControls => _content.Controls;
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int ContentViewportWidth => Math.Max(50, this.ClientSize.Width - ScrollBarWidth - 4);
 
     public DarkScrollPanel()
     {
@@ -111,7 +297,7 @@ public class DarkScrollPanel : Panel
         }
 
         _contentHeight = maxBottom + 10;
-        _content.Width = Math.Max(50, this.ClientSize.Width - ScrollBarWidth - 4);
+        _content.Width = ContentViewportWidth;
         _content.Height = Math.Max(this.ClientSize.Height, _contentHeight);
 
         ClampAndApplyScroll();
@@ -418,10 +604,13 @@ public class ModernComboBox : ComboBox
         if (m.Msg == WM_PAINT)
         {
             using Graphics g = Graphics.FromHwnd(this.Handle);
-            using Pen outerPen = new Pen(this.Focused ? Color.FromArgb(0, 120, 212) : Color.FromArgb(68, 68, 68), 1);
-            using Pen innerPen = new Pen(this.BackColor, 1);
-            g.DrawRectangle(outerPen, 0, 0, this.Width - 1, this.Height - 1);
-            g.DrawRectangle(innerPen, 1, 1, this.Width - 3, this.Height - 3);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using Pen innerPen = new Pen(this.BackColor, 2f);
+            g.DrawRectangle(innerPen, 0, 0, this.Width - 1, this.Height - 1);
+
+            using GraphicsPath borderPath = Win11CardPanel.CreateRoundRect(new Rectangle(0, 0, this.Width - 1, this.Height - 1), 5);
+            using Pen outerPen = new Pen(this.Focused ? Color.FromArgb(0, 120, 212) : Color.FromArgb(68, 68, 68), 1f);
+            g.DrawPath(outerPen, borderPath);
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.Drawing;
+
 public readonly struct BadgeInfo
 {
     public string Text { get; }
@@ -184,6 +186,7 @@ public class AppSettings
 
     public string OverlayPosition { get; set; } = "Bottom Center";
     public int PopupDurationMs { get; set; } = 2500;
+    public int OverlayOpacity { get; set; } = 100;
 
     public int OverlayWidth { get; set; } = 360;
     public int OverlayHeight { get; set; } = 80;
@@ -228,6 +231,7 @@ public class AppSettings
             CarouselBackgroundEnabled = this.CarouselBackgroundEnabled,
             OverlayPosition = this.OverlayPosition,
             PopupDurationMs = this.PopupDurationMs,
+            OverlayOpacity = this.OverlayOpacity,
             OverlayWidth = this.OverlayWidth,
             OverlayHeight = this.OverlayHeight,
             EnableInterpolation = this.EnableInterpolation,

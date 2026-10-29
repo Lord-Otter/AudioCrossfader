@@ -8,9 +8,10 @@ public class SettingsForm : Form
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-    private Button _navBtnGeneral = null!;
-    private Button _navBtnGroups = null!;
-    private Button _navBtnPersonalization = null!;
+    private Win11CardPanel _pillTrack = null!;
+    private ModernButton _navBtnGeneral = null!;
+    private ModernButton _navBtnGroups = null!;
+    private ModernButton _navBtnPersonalization = null!;
     private DarkScrollPanel _pageGeneral = null!;
     private DarkScrollPanel _pageGroups = null!;
     private DarkScrollPanel _pagePersonalization = null!;
@@ -18,29 +19,37 @@ public class SettingsForm : Form
     private Win11CardPanel _keysCard = null!;
     private Win11CardPanel _cycleListCard = null!;
     private Label _lblCycleCardTitle = null!;
-    private Button _btnAddCycleEntry = null!;
+    private ModernButton _btnAddCycleEntry = null!;
     private Panel _cycleSlotsHost = null!;
+
+    private Win11CardPanel _previewCard = null!;
+    private Win11CardPanel _overlayStyleCard = null!;
+    private Win11CardPanel _carouselCard = null!;
+    private Win11CardPanel _layoutCard = null!;
     private Win11CardPanel _behaviorCard = null!;
+
+    private ModernButton _btnRevert = null!;
+    private ModernButton _btnSave = null!;
 
     private Label _lblKey1 = null!;
     private TextBox _txtKey1 = null!;
-    private Button _btnRec1 = null!;
+    private ModernButton _btnRec1 = null!;
 
     private Label _lblKey2 = null!;
     private TextBox _txtKey2 = null!;
-    private Button _btnRec2 = null!;
+    private ModernButton _btnRec2 = null!;
 
     private Label _lblKey3 = null!;
     private TextBox _txtKey3 = null!;
-    private Button _btnRec3 = null!;
+    private ModernButton _btnRec3 = null!;
 
     private Label _lblKeyCycleNext = null!;
     private TextBox _txtKeyCycleNext = null!;
-    private Button _btnRecCycleNext = null!;
+    private ModernButton _btnRecCycleNext = null!;
 
     private Label _lblKeyCyclePrev = null!;
     private TextBox _txtKeyCyclePrev = null!;
-    private Button _btnRecCyclePrev = null!;
+    private ModernButton _btnRecCyclePrev = null!;
 
     private CheckBox _chkKeepOverlayAlwaysOn = null!;
     private ModernComboBox _cmbIdentityMode = null!;
@@ -53,16 +62,18 @@ public class SettingsForm : Form
     private CheckBox _chkCarouselBg = null!;
     private ModernComboBox _cmbPosition = null!;
     private TextBox _txtPopupDuration = null!;
+    private TextBox _txtOverlayOpacity = null!;
     private TextBox _txtStepSize = null!;
     private TextBox _txtWidth = null!;
     private TextBox _txtHeight = null!;
     private CheckBox _chkStartup = null!;
+    private CheckBox _chkPauseMediaOnMute = null!;
     private CheckBox _chkInterpolation = null!;
     private TextBox _txtInterpSpeed = null!;
     private CheckBox _chkBuffer = null!;
 
-    private Panel _unmutedColorBox = null!;
-    private Panel _mutedColorBox = null!;
+    private RoundedColorSwatch _unmutedColorBox = null!;
+    private RoundedColorSwatch _mutedColorBox = null!;
 
     private readonly TrayApplicationContext _context;
 
@@ -72,13 +83,63 @@ public class SettingsForm : Form
     private Label _lblStatus = null!;
 
     private bool _isRecording = false;
-    private Button? _activeRecordButton = null;
+    private ModernButton? _activeRecordButton = null;
     private TextBox? _activeTargetTextBox = null;
     private Action<int>? _activeKeyCommitCallback = null;
     private string _previousButtonText = "";
     private string _previousTextBoxText = "";
     private KeyCaptureFilter? _mouseFilter;
     private bool _isInitializing = true;
+    private int _activeTabIndex = 0;
+
+    private const int ENUM_CURRENT_SETTINGS = -1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int dmFields;
+        public int dmPositionX;
+        public int dmPositionY;
+        public int dmDisplayOrientation;
+        public int dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmFormName;
+        public short dmLogPixels;
+        public int dmBitsPerPel;
+        public int dmPelsWidth;
+        public int dmPelsHeight;
+        public int dmDisplayFlags;
+        public int dmDisplayFrequency;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+
+    private static (int width, int height) GetPhysicalMonitorResolution(Screen scr)
+    {
+        try
+        {
+            DEVMODE dm = new DEVMODE();
+            dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+            if (EnumDisplaySettings(scr.DeviceName, ENUM_CURRENT_SETTINGS, ref dm) && dm.dmPelsWidth > 0 && dm.dmPelsHeight > 0)
+            {
+                return (dm.dmPelsWidth, dm.dmPelsHeight);
+            }
+        }
+        catch { }
+        return (scr.Bounds.Width, scr.Bounds.Height);
+    }
 
     public SettingsForm(AppSettings initialSettings, TrayApplicationContext context)
     {
@@ -88,9 +149,10 @@ public class SettingsForm : Form
         _detectedAudio = AudioProcessDetector.Scan();
 
         this.Text = "Audio Crossfader Settings";
-        this.Size = new Size(520, 780);
-        this.FormBorderStyle = FormBorderStyle.FixedSingle;
-        this.MaximizeBox = false;
+        this.Size = new Size(540, 780);
+        this.MinimumSize = new Size(520, 560);
+        this.FormBorderStyle = FormBorderStyle.Sizable;
+        this.MaximizeBox = true;
         this.MinimizeBox = true;
         this.ShowInTaskbar = true;
         this.StartPosition = FormStartPosition.CenterScreen;
@@ -147,6 +209,7 @@ public class SettingsForm : Form
             _context.NotifySettingsWindowState(false);
         };
 
+        this.Resize += (s, e) => HandleWindowResize();
         this.KeyDown += SettingsForm_KeyDown;
         this.KeyUp += SettingsForm_KeyUp;
 
@@ -155,6 +218,7 @@ public class SettingsForm : Form
         _isInitializing = false;
 
         SwitchTab(0);
+        HandleWindowResize();
         MarkClean();
     }
 
@@ -171,6 +235,60 @@ public class SettingsForm : Form
         catch { }
     }
 
+    private void HandleWindowResize()
+    {
+        if (_pillTrack == null) return;
+
+        int clientW = this.ClientSize.Width;
+        int trackW = Math.Max(460, clientW - 36);
+        _pillTrack.Width = trackW;
+
+        int tabGap = 4;
+        int availW = trackW - 8 - (tabGap * 2);
+        int tab1W = availW / 3;
+        int tab2W = availW / 3;
+        int tab3W = availW - tab1W - tab2W;
+
+        _navBtnGeneral.Left = 4;
+        _navBtnGeneral.Width = tab1W;
+
+        _navBtnGroups.Left = _navBtnGeneral.Right + tabGap;
+        _navBtnGroups.Width = tab2W;
+
+        _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap;
+        _navBtnPersonalization.Width = tab3W;
+
+        if (_btnSave != null && _btnRevert != null && _lblStatus != null)
+        {
+            _lblStatus.Width = trackW;
+            _btnSave.Left = clientW - 18 - _btnSave.Width;
+        }
+
+        int cardW = Math.Max(460, (_pageGeneral?.ContentViewportWidth ?? (clientW - 12)) - 28);
+
+        if (_cycleListCard != null)
+        {
+            _cycleListCard.Width = cardW;
+            _btnAddCycleEntry.Left = cardW - 14 - _btnAddCycleEntry.Width;
+            _cycleSlotsHost.Width = cardW - 24;
+        }
+        if (_keysCard != null) _keysCard.Width = cardW;
+
+        if (_previewCard != null) _previewCard.Width = cardW;
+        if (_overlayStyleCard != null) _overlayStyleCard.Width = cardW;
+        if (_carouselCard != null) _carouselCard.Width = cardW;
+        if (_layoutCard != null) _layoutCard.Width = cardW;
+        if (_behaviorCard != null) _behaviorCard.Width = cardW;
+
+        if (!_isInitializing)
+        {
+            PopulateCycleListUI();
+            RefreshGroupsTabUI();
+            ReflowGeneralPage();
+            ReflowPersonalizationPage();
+        }
+    }
+
     private Panel BuildTopNavigationBar()
     {
         Panel header = new Panel
@@ -180,7 +298,7 @@ public class SettingsForm : Form
             BackColor = Color.FromArgb(28, 28, 28)
         };
 
-        Win11CardPanel pillTrack = new Win11CardPanel
+        _pillTrack = new Win11CardPanel
         {
             Left = 18,
             Top = 10,
@@ -192,41 +310,42 @@ public class SettingsForm : Form
             Padding = new Padding(3)
         };
 
-        _navBtnGeneral = CreateNavTabButton("General & Pairs", 4, 4, 156, () => SwitchTab(0));
-        _navBtnGroups = CreateNavTabButton("Program Groups", 162, 4, 150, () => SwitchTab(1));
-        _navBtnPersonalization = CreateNavTabButton("Personalization", 314, 4, 150, () => SwitchTab(2));
+        _navBtnGeneral = CreateNavTabButton("Sources", 4, 4, 152, () => SwitchTab(0));
+        _navBtnGroups = CreateNavTabButton("Groups", 160, 4, 152, () => SwitchTab(1));
+        _navBtnPersonalization = CreateNavTabButton("Appearance & Behavior", 316, 4, 148, () => SwitchTab(2));
 
-        pillTrack.Controls.Add(_navBtnGeneral);
-        pillTrack.Controls.Add(_navBtnGroups);
-        pillTrack.Controls.Add(_navBtnPersonalization);
-        header.Controls.Add(pillTrack);
+        _pillTrack.Controls.Add(_navBtnGeneral);
+        _pillTrack.Controls.Add(_navBtnGroups);
+        _pillTrack.Controls.Add(_navBtnPersonalization);
+        header.Controls.Add(_pillTrack);
 
         return header;
     }
 
-    private Button CreateNavTabButton(string text, int left, int top, int width, Action onClick)
+    private ModernButton CreateNavTabButton(string text, int left, int top, int width, Action onClick)
     {
-        Button btn = new Button
+        ModernButton btn = new ModernButton
         {
             Text = text,
             Left = left,
             Top = top,
             Width = width,
             Height = 30,
-            FlatStyle = FlatStyle.Flat,
+            CornerRadius = 6,
+            ShowBorder = false,
             Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold),
             ForeColor = Color.FromArgb(200, 200, 200),
             BackColor = Color.FromArgb(37, 37, 37),
-            Cursor = Cursors.Hand
+            HoverBackColor = Color.FromArgb(50, 50, 50),
+            PressedBackColor = Color.FromArgb(44, 44, 44)
         };
-        btn.FlatAppearance.BorderSize = 0;
-        btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(50, 50, 50);
         btn.Click += (s, e) => onClick();
         return btn;
     }
 
     private void SwitchTab(int index)
     {
+        _activeTabIndex = index;
         _pageGeneral.Visible = (index == 0);
         _pageGroups.Visible = (index == 1);
         _pagePersonalization.Visible = (index == 2);
@@ -240,10 +359,13 @@ public class SettingsForm : Form
         else if (index == 2) _pagePersonalization.RecalculateScroll();
     }
 
-    private void StyleNavButton(Button btn, bool active)
+    private void StyleNavButton(ModernButton btn, bool active)
     {
         btn.BackColor = active ? Color.FromArgb(0, 120, 212) : Color.FromArgb(37, 37, 37);
+        btn.HoverBackColor = active ? Color.FromArgb(20, 138, 230) : Color.FromArgb(50, 50, 50);
+        btn.PressedBackColor = active ? Color.FromArgb(0, 100, 180) : Color.FromArgb(44, 44, 44);
         btn.ForeColor = active ? Color.White : Color.FromArgb(185, 185, 185);
+        btn.Invalidate();
     }
 
     private Panel BuildBottomActionBar()
@@ -273,36 +395,48 @@ public class SettingsForm : Form
         };
         bottomPanel.Controls.Add(_lblStatus);
 
-        Button btnRevert = CreateModernButton("Revert Changes", 18, 29, 180, 33, false);
-        btnRevert.Click += (s, e) => RevertChanges();
-        bottomPanel.Controls.Add(btnRevert);
+        _btnRevert = CreateModernButton("Revert", 18, 29, 160, 33, false);
+        _btnRevert.Click += (s, e) => RevertChanges();
+        bottomPanel.Controls.Add(_btnRevert);
 
-        Button btnSave = CreateModernButton("Save & Apply", 302, 29, 184, 33, true);
-        btnSave.Click += (s, e) => SaveChanges();
-        bottomPanel.Controls.Add(btnSave);
+        _btnSave = CreateModernButton("Save & Apply", 302, 29, 184, 33, true);
+        _btnSave.Click += (s, e) => SaveChanges();
+        bottomPanel.Controls.Add(_btnSave);
 
         return bottomPanel;
     }
 
-    private Button CreateModernButton(string text, int left, int top, int width, int height, bool isPrimary)
+    private ModernButton CreateModernButton(string text, int left, int top, int width, int height, bool isPrimary, bool isDanger = false)
     {
-        Button btn = new Button
+        Color backCol = isDanger
+            ? Color.FromArgb(165, 45, 50)
+            : (isPrimary ? Color.FromArgb(0, 120, 212) : Color.FromArgb(52, 52, 52));
+        Color hoverCol = isDanger
+            ? Color.FromArgb(185, 55, 60)
+            : (isPrimary ? Color.FromArgb(20, 138, 230) : Color.FromArgb(66, 66, 66));
+        Color pressCol = isDanger
+            ? Color.FromArgb(140, 35, 40)
+            : (isPrimary ? Color.FromArgb(0, 100, 180) : Color.FromArgb(44, 44, 44));
+        Color borderCol = isDanger
+            ? Color.FromArgb(195, 70, 75)
+            : (isPrimary ? Color.FromArgb(30, 144, 255) : Color.FromArgb(70, 70, 70));
+
+        return new ModernButton
         {
             Text = text,
             Left = left,
             Top = top,
             Width = width,
             Height = height,
-            BackColor = isPrimary ? Color.FromArgb(0, 120, 212) : Color.FromArgb(52, 52, 52),
+            CornerRadius = 6,
+            BackColor = backCol,
+            HoverBackColor = hoverCol,
+            PressedBackColor = pressCol,
+            BorderColor = borderCol,
             ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI Semibold", 8.75f, FontStyle.Bold),
-            Cursor = Cursors.Hand
+            ShowBorder = true,
+            Font = new Font("Segoe UI Semibold", 8.75f, FontStyle.Bold)
         };
-        btn.FlatAppearance.BorderSize = 1;
-        btn.FlatAppearance.BorderColor = isPrimary ? Color.FromArgb(30, 144, 255) : Color.FromArgb(70, 70, 70);
-        btn.FlatAppearance.MouseOverBackColor = isPrimary ? Color.FromArgb(20, 138, 230) : Color.FromArgb(66, 66, 66);
-        return btn;
     }
 
     private static Color SafeParseHexColor(string hex, Color fallback)
@@ -316,31 +450,26 @@ public class SettingsForm : Form
         return fallback;
     }
 
-    private Panel CreateCompactColorSwatch(int left, int top, int width, int height, string initialHex, Action<string> onColorPicked)
+    private RoundedColorSwatch CreateCompactColorSwatch(int left, int top, int width, int height, string initialHex, Action<string> onColorPicked)
     {
-        Panel swatch = new Panel
+        RoundedColorSwatch swatch = new RoundedColorSwatch
         {
             Left = left,
             Top = top,
             Width = width,
             Height = height,
-            BackColor = SafeParseHexColor(initialHex, Color.FromArgb(27, 59, 90)),
-            Cursor = Cursors.Hand
-        };
-
-        swatch.Paint += (s, e) =>
-        {
-            using Pen borderPen = new Pen(Color.FromArgb(110, 110, 110), 1);
-            e.Graphics.DrawRectangle(borderPen, 0, 0, swatch.Width - 1, swatch.Height - 1);
+            CornerRadius = 6,
+            SwatchColor = SafeParseHexColor(initialHex, Color.FromArgb(27, 59, 90))
         };
 
         swatch.Click += (s, e) =>
         {
             using ColorDialog dlg = new ColorDialog { FullOpen = true };
-            try { dlg.Color = swatch.BackColor; } catch { }
+            try { dlg.Color = swatch.SwatchColor; } catch { }
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                swatch.BackColor = dlg.Color;
+                swatch.SwatchColor = dlg.Color;
+                swatch.Invalidate();
                 string hex = ColorTranslator.ToHtml(dlg.Color);
                 onColorPicked(hex);
                 MarkDirty();
@@ -419,17 +548,17 @@ public class SettingsForm : Form
 
         _lblCycleCardTitle = new Label
         {
-            Text = "Crossfade Source Pairs (Cycle List)",
+            Text = "Source Pairs",
             Left = 14,
             Top = 12,
-            Width = 290,
+            Width = 220,
             Height = 20,
             Font = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(96, 205, 255)
         };
         _cycleListCard.Controls.Add(_lblCycleCardTitle);
 
-        _btnAddCycleEntry = CreateModernButton("+ Add Source Pair", 312, 9, 142, 26, true);
+        _btnAddCycleEntry = CreateModernButton("+ Add Pair", 334, 9, 120, 26, true);
         _btnAddCycleEntry.Click += (s, e) =>
         {
             _draftSettings.CrossfadeCycleList.Add(new CrossfadeCyclePair
@@ -465,24 +594,24 @@ public class SettingsForm : Form
         };
 
         int ky = 10;
-        AddSectionHeader(_keysCard, "Hotkeys & Key Combinations", 14, ref ky);
+        AddSectionHeader(_keysCard, "Hotkeys", 14, ref ky);
 
-        _lblKey1 = AddAlignedLabel(_keysCard, "Fade Up / Right:", 14, ky);
+        _lblKey1 = AddAlignedLabel(_keysCard, "Fade Right / Up:", 14, ky);
         var r1 = AddKeyBindControls(_keysCard, ref ky, null);
         _txtKey1 = r1.txt;
         _btnRec1 = r1.btn;
 
-        _lblKey2 = AddAlignedLabel(_keysCard, "Fade Down / Left:", 14, ky);
+        _lblKey2 = AddAlignedLabel(_keysCard, "Fade Left / Down:", 14, ky);
         var r2 = AddKeyBindControls(_keysCard, ref ky, null);
         _txtKey2 = r2.txt;
         _btnRec2 = r2.btn;
 
-        _lblKey3 = AddAlignedLabel(_keysCard, "Cycle Mute:", 14, ky);
+        _lblKey3 = AddAlignedLabel(_keysCard, "Mute Toggle:", 14, ky);
         var r3 = AddKeyBindControls(_keysCard, ref ky, null);
         _txtKey3 = r3.txt;
         _btnRec3 = r3.btn;
 
-        _lblKeyCycleNext = AddAlignedLabel(_keysCard, "Cycle Next Pair:", 14, ky);
+        _lblKeyCycleNext = AddAlignedLabel(_keysCard, "Next Pair:", 14, ky);
         var rNext = AddKeyBindControls(_keysCard, ref ky, val =>
         {
             _draftSettings.CycleNextKey = val;
@@ -491,78 +620,14 @@ public class SettingsForm : Form
         _txtKeyCycleNext = rNext.txt;
         _btnRecCycleNext = rNext.btn;
 
-        _lblKeyCyclePrev = AddAlignedLabel(_keysCard, "Cycle Prev Pair:", 14, ky);
+        _lblKeyCyclePrev = AddAlignedLabel(_keysCard, "Previous Pair:", 14, ky);
         var rPrev = AddKeyBindControls(_keysCard, ref ky, val => _draftSettings.CyclePrevKey = val, allowClear: true);
         _txtKeyCyclePrev = rPrev.txt;
         _btnRecCyclePrev = rPrev.btn;
 
         _keysCard.FitHeightToContent(12);
         page.InnerControls.Add(_keysCard);
-        y = _keysCard.Bottom + 10;
 
-        _behaviorCard = new Win11CardPanel
-        {
-            Left = 18,
-            Top = y,
-            Width = 468
-        };
-
-        int by = 10;
-        AddSectionHeader(_behaviorCard, "Step & System Behavior", 14, ref by);
-
-        Label lblStep = new Label
-        {
-            Text = "Step Size (%, 1 - 100):",
-            Left = 14,
-            Top = by + 3,
-            Width = 150,
-            ForeColor = Color.FromArgb(205, 205, 205)
-        };
-        _behaviorCard.Controls.Add(lblStep);
-
-        _txtStepSize = new TextBox
-        {
-            Text = _draftSettings.StepSize.ToString(),
-            Left = 170,
-            Top = by,
-            Width = 100,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        _txtStepSize.TextChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_txtStepSize);
-        by += 30;
-
-        _chkStartup = new CheckBox
-        {
-            Text = "Run on Windows Startup",
-            Checked = _draftSettings.RunOnStartup,
-            Left = 14,
-            Top = by,
-            Width = 430,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkStartup.CheckedChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_chkStartup);
-        by += 26;
-
-        _chkBuffer = new CheckBox
-        {
-            Text = "Enable 100% Equalization Center Detent (Crossfade)",
-            Checked = _draftSettings.EnableEqualizationBuffer,
-            Left = 14,
-            Top = by,
-            Width = 430,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkBuffer.CheckedChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_chkBuffer);
-
-        _behaviorCard.FitHeightToContent(12);
-        page.InnerControls.Add(_behaviorCard);
         return page;
     }
 
@@ -579,6 +644,8 @@ public class SettingsForm : Form
 
         List<string> options = GetAvailableSourceOptions();
         int y = 0;
+        int hostW = Math.Max(442, _cycleSlotsHost.Width);
+        int comboW = Math.Max(222, hostW - 220);
 
         for (int i = 0; i < _draftSettings.CrossfadeCycleList.Count; i++)
         {
@@ -588,7 +655,7 @@ public class SettingsForm : Form
             {
                 Left = 0,
                 Top = y,
-                Width = 442,
+                Width = hostW,
                 Height = 72,
                 FillColor = Color.FromArgb(48, 48, 48),
                 BorderColor = Color.FromArgb(66, 66, 66),
@@ -606,14 +673,14 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(lblS1);
 
-            Panel swatch1 = CreateCompactColorSwatch(28, 7, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
+            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(28, 7, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
             pairCard.Controls.Add(swatch1);
 
             ModernComboBox cmb1 = new ModernComboBox
             {
                 Left = 58,
                 Top = 7,
-                Width = 222,
+                Width = comboW,
                 DropDownStyle = ComboBoxStyle.DropDown,
                 BadgeResolver = ResolveDropdownBadge,
                 IconResolver = ResolveDropdownIcon
@@ -641,7 +708,9 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(cmb1);
 
-            Button btnBrowse1 = CreateModernButton("Browse", 286, 6, 74, 25, false);
+            int btnRightStart = 58 + comboW + 6;
+
+            ModernButton btnBrowse1 = CreateModernButton("Browse", btnRightStart, 6, 74, 25, false);
             btnBrowse1.Click += (s, e) =>
             {
                 BrowseForExecutable(cmb1);
@@ -650,7 +719,7 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(btnBrowse1);
 
-            Button btnUp = CreateModernButton("▲", 364, 6, 32, 25, false);
+            ModernButton btnUp = CreateModernButton("▲", btnRightStart + 78, 6, 32, 25, false);
             btnUp.Enabled = (index > 0);
             btnUp.Click += (s, e) =>
             {
@@ -664,7 +733,7 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(btnUp);
 
-            Button btnDel = CreateModernButton("✕", 400, 6, 34, 57, false);
+            ModernButton btnDel = CreateModernButton("✕", btnRightStart + 114, 6, 34, 57, false, isDanger: true);
             btnDel.Enabled = (_draftSettings.CrossfadeCycleList.Count > 1);
             btnDel.Click += (s, e) =>
             {
@@ -692,14 +761,14 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(lblS2);
 
-            Panel swatch2 = CreateCompactColorSwatch(28, 39, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
+            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(28, 39, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
             pairCard.Controls.Add(swatch2);
 
             ModernComboBox cmb2 = new ModernComboBox
             {
                 Left = 58,
                 Top = 39,
-                Width = 222,
+                Width = comboW,
                 DropDownStyle = ComboBoxStyle.DropDown,
                 BadgeResolver = ResolveDropdownBadge,
                 IconResolver = ResolveDropdownIcon
@@ -727,7 +796,7 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(cmb2);
 
-            Button btnBrowse2 = CreateModernButton("Browse", 286, 38, 74, 25, false);
+            ModernButton btnBrowse2 = CreateModernButton("Browse", btnRightStart, 38, 74, 25, false);
             btnBrowse2.Click += (s, e) =>
             {
                 BrowseForExecutable(cmb2);
@@ -736,7 +805,7 @@ public class SettingsForm : Form
             };
             pairCard.Controls.Add(btnBrowse2);
 
-            Button btnDown = CreateModernButton("▼", 364, 38, 32, 25, false);
+            ModernButton btnDown = CreateModernButton("▼", btnRightStart + 78, 38, 32, 25, false);
             btnDown.Enabled = (index < _draftSettings.CrossfadeCycleList.Count - 1);
             btnDown.Click += (s, e) =>
             {
@@ -760,7 +829,7 @@ public class SettingsForm : Form
 
     private void ReflowGeneralPage()
     {
-        if (_keysCard == null || _cycleListCard == null || _behaviorCard == null)
+        if (_keysCard == null || _cycleListCard == null)
             return;
 
         int itemCount = _draftSettings.CrossfadeCycleList.Count;
@@ -772,10 +841,30 @@ public class SettingsForm : Form
         _keysCard.Top = _cycleListCard.Bottom + 10;
         _keysCard.FitHeightToContent(12);
 
-        _behaviorCard.Top = _keysCard.Bottom + 10;
+        _pageGeneral?.RecalculateScroll();
+    }
+
+    private void ReflowPersonalizationPage()
+    {
+        if (_previewCard == null || _overlayStyleCard == null || _carouselCard == null || _layoutCard == null || _behaviorCard == null)
+            return;
+
+        _previewCard.Top = 4;
+        _previewCard.FitHeightToContent(12);
+
+        _overlayStyleCard.Top = _previewCard.Bottom + 10;
+        _overlayStyleCard.FitHeightToContent(12);
+
+        _carouselCard.Top = _overlayStyleCard.Bottom + 10;
+        _carouselCard.FitHeightToContent(12);
+
+        _layoutCard.Top = _carouselCard.Bottom + 10;
+        _layoutCard.FitHeightToContent(12);
+
+        _behaviorCard.Top = _layoutCard.Bottom + 10;
         _behaviorCard.FitHeightToContent(12);
 
-        _pageGeneral?.RecalculateScroll();
+        _pagePersonalization?.RecalculateScroll();
     }
 
     private DarkScrollPanel CreateGroupsPage()
@@ -791,6 +880,7 @@ public class SettingsForm : Form
 
         _draftSettings.OverlayPosition = _cmbPosition?.SelectedItem?.ToString() ?? _draftSettings.OverlayPosition;
         _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration?.Text ?? "2500", 2500), 500, 10000);
+        _draftSettings.OverlayOpacity = Math.Clamp(ParseInt(_txtOverlayOpacity?.Text ?? "100", 100), 10, 100);
         _draftSettings.OverlayWidth = Math.Clamp(ParseInt(_txtWidth?.Text ?? "360", 360), 120, 2000);
         _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight?.Text ?? "80", 80), 50, 1000);
         _draftSettings.EnableInterpolation = _chkInterpolation?.Checked ?? true;
@@ -816,7 +906,8 @@ public class SettingsForm : Form
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
         int y = 4;
 
-        Win11CardPanel previewCard = new Win11CardPanel
+        // 1. Live Preview Card
+        _previewCard = new Win11CardPanel
         {
             Left = 18,
             Top = y,
@@ -824,20 +915,19 @@ public class SettingsForm : Form
         };
 
         int py = 10;
-        AddSectionHeader(previewCard, "Live Overlay Preview", 14, ref py);
+        AddSectionHeader(_previewCard, "Preview", 14, ref py);
 
-        Button btnShowPreview = CreateModernButton("Show Overlay Preview", 14, py, 195, 29, true);
+        ModernButton btnShowPreview = CreateModernButton("Test Overlay", 14, py, 145, 28, true);
         btnShowPreview.Click += (s, e) => PushLivePreviewIfActive(forceTrigger: true);
-        previewCard.Controls.Add(btnShowPreview);
-        py += 36;
+        _previewCard.Controls.Add(btnShowPreview);
 
         _chkKeepOverlayAlwaysOn = new CheckBox
         {
-            Text = "Keep Overlay Always Visible While Settings Window is Open",
+            Text = "Pin overlay while settings open",
             Checked = _draftSettings.KeepOverlayOnWhileSettingsOpen,
-            Left = 14,
-            Top = py,
-            Width = 435,
+            Left = 172,
+            Top = py + 3,
+            Width = 280,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -847,36 +937,37 @@ public class SettingsForm : Form
             MarkDirty();
             _context.NotifySettingsWindowState(true, _draftSettings);
         };
-        previewCard.Controls.Add(_chkKeepOverlayAlwaysOn);
+        _previewCard.Controls.Add(_chkKeepOverlayAlwaysOn);
 
-        previewCard.FitHeightToContent(12);
-        page.InnerControls.Add(previewCard);
-        y = previewCard.Bottom + 10;
+        _previewCard.FitHeightToContent(12);
+        page.InnerControls.Add(_previewCard);
+        y = _previewCard.Bottom + 10;
 
-        Win11CardPanel contentStyleCard = new Win11CardPanel
+        // 2. Overlay Style & Colors Card
+        _overlayStyleCard = new Win11CardPanel
         {
             Left = 18,
             Top = y,
             Width = 468
         };
 
-        int cy = 10;
-        AddSectionHeader(contentStyleCard, "Overlay Content, Flair & Carousel", 14, ref cy);
+        int sy = 10;
+        AddSectionHeader(_overlayStyleCard, "Overlay Style", 14, ref sy);
 
         Label lblIdMode = new Label
         {
-            Text = "Overlay App Identity:",
+            Text = "App Display:",
             Left = 14,
-            Top = cy + 3,
+            Top = sy + 3,
             Width = 165,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        contentStyleCard.Controls.Add(lblIdMode);
+        _overlayStyleCard.Controls.Add(lblIdMode);
 
         _cmbIdentityMode = new ModernComboBox
         {
             Left = 185,
-            Top = cy,
+            Top = sy,
             Width = 265,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
@@ -889,23 +980,23 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        contentStyleCard.Controls.Add(_cmbIdentityMode);
-        cy += 30;
+        _overlayStyleCard.Controls.Add(_cmbIdentityMode);
+        sy += 30;
 
         Label lblLvlMode = new Label
         {
-            Text = "Overlay Volume Readout:",
+            Text = "Volume Display:",
             Left = 14,
-            Top = cy + 3,
+            Top = sy + 3,
             Width = 165,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        contentStyleCard.Controls.Add(lblLvlMode);
+        _overlayStyleCard.Controls.Add(lblLvlMode);
 
         _cmbLevelMode = new ModernComboBox
         {
             Left = 185,
-            Top = cy,
+            Top = sy,
             Width = 265,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
@@ -918,24 +1009,143 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        contentStyleCard.Controls.Add(_cmbLevelMode);
-        cy += 30;
+        _overlayStyleCard.Controls.Add(_cmbLevelMode);
+        sy += 30;
+
+        Label lblOpacity = new Label
+        {
+            Text = "Opacity (10 - 100%):",
+            Left = 14,
+            Top = sy + 3,
+            Width = 165,
+            ForeColor = Color.FromArgb(200, 200, 200)
+        };
+        _overlayStyleCard.Controls.Add(lblOpacity);
+
+        _txtOverlayOpacity = new TextBox
+        {
+            Text = _draftSettings.OverlayOpacity.ToString(),
+            Left = 185,
+            Top = sy,
+            Width = 80,
+            BackColor = Color.FromArgb(48, 48, 48),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _txtOverlayOpacity.TextChanged += (s, e) =>
+        {
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        _overlayStyleCard.Controls.Add(_txtOverlayOpacity);
+        sy += 30;
+
+        _unmutedColorBox = AddColorPickerRow(_overlayStyleCard, "Active Bar Color:", _draftSettings.UnmutedColor, (hex) =>
+        {
+            _draftSettings.UnmutedColor = hex;
+            MarkDirty();
+            PushLivePreviewIfActive();
+        }, ref sy);
+
+        _mutedColorBox = AddColorPickerRow(_overlayStyleCard, "Muted Bar Color:", _draftSettings.MutedColor, (hex) =>
+        {
+            _draftSettings.MutedColor = hex;
+            MarkDirty();
+            PushLivePreviewIfActive();
+        }, ref sy);
+
+        _chkUseSourceBgColors = new CheckBox
+        {
+            Text = "Tint background with source colors",
+            Checked = _draftSettings.UseSourceBackgroundColors,
+            Left = 14,
+            Top = sy + 2,
+            Width = 430,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkUseSourceBgColors.CheckedChanged += (s, e) =>
+        {
+            _draftSettings.UseSourceBackgroundColors = _chkUseSourceBgColors.Checked;
+            if (_chkFadeBgWithVolume != null) _chkFadeBgWithVolume.Enabled = _chkUseSourceBgColors.Checked;
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        _overlayStyleCard.Controls.Add(_chkUseSourceBgColors);
+        sy += 26;
+
+        _chkFadeBgWithVolume = new CheckBox
+        {
+            Text = "Dim background as volume lowers",
+            Checked = _draftSettings.FadeBgColorWithVolume,
+            Enabled = _draftSettings.UseSourceBackgroundColors,
+            Left = 14,
+            Top = sy + 2,
+            Width = 430,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkFadeBgWithVolume.CheckedChanged += (s, e) =>
+        {
+            _draftSettings.FadeBgColorWithVolume = _chkFadeBgWithVolume.Checked;
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        _overlayStyleCard.Controls.Add(_chkFadeBgWithVolume);
+
+        _overlayStyleCard.FitHeightToContent(12);
+        page.InnerControls.Add(_overlayStyleCard);
+        y = _overlayStyleCard.Bottom + 10;
+
+        // 3. Carousel Card
+        _carouselCard = new Win11CardPanel
+        {
+            Left = 18,
+            Top = y,
+            Width = 468
+        };
+
+        int cy = 10;
+        AddSectionHeader(_carouselCard, "Carousel", 14, ref cy);
+
+        _chkShowCarousel = new CheckBox
+        {
+            Text = "Show carousel when cycling",
+            Checked = _draftSettings.CarouselVisibleNeighbors > 0.05f,
+            Left = 14,
+            Top = cy,
+            Width = 430,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkShowCarousel.CheckedChanged += (s, e) =>
+        {
+            _draftSettings.CarouselVisibleNeighbors = _chkShowCarousel.Checked ? 1.5f : 0.0f;
+            if (_chkEnableAnimations != null) _chkEnableAnimations.Enabled = _chkShowCarousel.Checked;
+            if (_chkCarouselBg != null) _chkCarouselBg.Enabled = _chkShowCarousel.Checked;
+            if (_cmbCarouselStyle != null) _cmbCarouselStyle.Enabled = _chkShowCarousel.Checked;
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        _carouselCard.Controls.Add(_chkShowCarousel);
+        cy += 28;
 
         Label lblCarouselMotion = new Label
         {
-            Text = "Carousel Motion Style:",
+            Text = "Carousel Style:",
             Left = 14,
             Top = cy + 3,
             Width = 165,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        contentStyleCard.Controls.Add(lblCarouselMotion);
+        _carouselCard.Controls.Add(lblCarouselMotion);
 
         _cmbCarouselStyle = new ModernComboBox
         {
             Left = 185,
             Top = cy,
             Width = 265,
+            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         _cmbCarouselStyle.Items.AddRange(new object[] { "3D Floating Pills", "Fluid Moving Deck" });
@@ -947,78 +1157,17 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        contentStyleCard.Controls.Add(_cmbCarouselStyle);
+        _carouselCard.Controls.Add(_cmbCarouselStyle);
         cy += 30;
-
-        _chkUseSourceBgColors = new CheckBox
-        {
-            Text = "Tint Overlay Background with Assigned Source Colors",
-            Checked = _draftSettings.UseSourceBackgroundColors,
-            Left = 14,
-            Top = cy + 2,
-            Width = 440,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkUseSourceBgColors.CheckedChanged += (s, e) =>
-        {
-            _draftSettings.UseSourceBackgroundColors = _chkUseSourceBgColors.Checked;
-            if (_chkFadeBgWithVolume != null) _chkFadeBgWithVolume.Enabled = _chkUseSourceBgColors.Checked;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        };
-        contentStyleCard.Controls.Add(_chkUseSourceBgColors);
-        cy += 26;
-
-        _chkFadeBgWithVolume = new CheckBox
-        {
-            Text = "Fade Background Color to Dark Grey as Volume Lowers / Mutes",
-            Checked = _draftSettings.FadeBgColorWithVolume,
-            Enabled = _draftSettings.UseSourceBackgroundColors,
-            Left = 14,
-            Top = cy + 2,
-            Width = 440,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkFadeBgWithVolume.CheckedChanged += (s, e) =>
-        {
-            _draftSettings.FadeBgColorWithVolume = _chkFadeBgWithVolume.Checked;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        };
-        contentStyleCard.Controls.Add(_chkFadeBgWithVolume);
-        cy += 26;
-
-        _chkShowCarousel = new CheckBox
-        {
-            Text = "Show Carousel Deck When Cycling Source Pairs",
-            Checked = _draftSettings.CarouselVisibleNeighbors > 0.05f,
-            Left = 14,
-            Top = cy + 2,
-            Width = 440,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkShowCarousel.CheckedChanged += (s, e) =>
-        {
-            _draftSettings.CarouselVisibleNeighbors = _chkShowCarousel.Checked ? 1.5f : 0.0f;
-            if (_chkEnableAnimations != null) _chkEnableAnimations.Enabled = _chkShowCarousel.Checked;
-            if (_chkCarouselBg != null) _chkCarouselBg.Enabled = _chkShowCarousel.Checked;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        };
-        contentStyleCard.Controls.Add(_chkShowCarousel);
-        cy += 26;
 
         _chkEnableAnimations = new CheckBox
         {
-            Text = "Enable Carousel Animation / Motion",
+            Text = "Carousel animations",
             Checked = _draftSettings.EnableCarouselAnimation,
             Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
             Left = 14,
-            Top = cy + 2,
-            Width = 440,
+            Top = cy,
+            Width = 210,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1028,17 +1177,16 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        contentStyleCard.Controls.Add(_chkEnableAnimations);
-        cy += 26;
+        _carouselCard.Controls.Add(_chkEnableAnimations);
 
         _chkCarouselBg = new CheckBox
         {
-            Text = "Enable Carousel Background Container",
+            Text = "Carousel backdrop",
             Checked = _draftSettings.CarouselBackgroundEnabled,
             Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
-            Left = 14,
-            Top = cy + 2,
-            Width = 440,
+            Left = 230,
+            Top = cy,
+            Width = 210,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1048,13 +1196,14 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        contentStyleCard.Controls.Add(_chkCarouselBg);
+        _carouselCard.Controls.Add(_chkCarouselBg);
 
-        contentStyleCard.FitHeightToContent(12);
-        page.InnerControls.Add(contentStyleCard);
-        y = contentStyleCard.Bottom + 10;
+        _carouselCard.FitHeightToContent(12);
+        page.InnerControls.Add(_carouselCard);
+        y = _carouselCard.Bottom + 10;
 
-        Win11CardPanel appearanceCard = new Win11CardPanel
+        // 4. Position & Size Card
+        _layoutCard = new Win11CardPanel
         {
             Left = 18,
             Top = y,
@@ -1062,31 +1211,17 @@ public class SettingsForm : Form
         };
 
         int ay = 10;
-        AddSectionHeader(appearanceCard, "Overlay Colors, Position & Animation", 14, ref ay);
-
-        _unmutedColorBox = AddColorPickerRow(appearanceCard, "Unmuted Bar Color:", _draftSettings.UnmutedColor, (hex) =>
-        {
-            _draftSettings.UnmutedColor = hex;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        }, ref ay);
-
-        _mutedColorBox = AddColorPickerRow(appearanceCard, "Muted Bar Color:", _draftSettings.MutedColor, (hex) =>
-        {
-            _draftSettings.MutedColor = hex;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        }, ref ay);
+        AddSectionHeader(_layoutCard, "Position & Size", 14, ref ay);
 
         Label lblPos = new Label
         {
-            Text = "Overlay Screen Position:",
+            Text = "Screen Position:",
             Left = 14,
             Top = ay + 3,
             Width = 165,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        appearanceCard.Controls.Add(lblPos);
+        _layoutCard.Controls.Add(lblPos);
 
         _cmbPosition = new ModernComboBox
         {
@@ -1103,12 +1238,12 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        appearanceCard.Controls.Add(_cmbPosition);
+        _layoutCard.Controls.Add(_cmbPosition);
         ay += 30;
 
         CheckBox chkFollowMonitor = new CheckBox
         {
-            Text = "Move Overlay to Whichever Monitor Has Focus",
+            Text = "Follow active monitor",
             Checked = _draftSettings.FollowActiveMonitor,
             Left = 14,
             Top = ay,
@@ -1116,7 +1251,7 @@ public class SettingsForm : Form
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
-        appearanceCard.Controls.Add(chkFollowMonitor);
+        _layoutCard.Controls.Add(chkFollowMonitor);
         ay += 28;
 
         Panel monitorRowsPanel = new Panel
@@ -1145,7 +1280,8 @@ public class SettingsForm : Form
                 _draftSettings.MonitorConfigs.Add(existingCfg);
             }
 
-            string monLabel = $"Monitor {i + 1}{(scr.Primary ? " (Primary)" : "")} [{scr.Bounds.Width}×{scr.Bounds.Height}]";
+            var (physW, physH) = GetPhysicalMonitorResolution(scr);
+            string monLabel = $"Monitor {i + 1}{(scr.Primary ? " (Primary)" : "")} [{physW}×{physH}]";
             CheckBox chkMon = new CheckBox
             {
                 Text = monLabel,
@@ -1189,7 +1325,7 @@ public class SettingsForm : Form
             my += 30;
         }
         monitorRowsPanel.Height = Math.Max(30, my);
-        appearanceCard.Controls.Add(monitorRowsPanel);
+        _layoutCard.Controls.Add(monitorRowsPanel);
         ay += monitorRowsPanel.Height + 6;
 
         chkFollowMonitor.CheckedChanged += (s, e) =>
@@ -1200,39 +1336,15 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
 
-        Label lblDur = new Label
+        Label lblSize = new Label
         {
-            Text = "Popup Duration (ms):",
+            Text = "Dimensions (W × H):",
             Left = 14,
             Top = ay + 3,
             Width = 165,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        appearanceCard.Controls.Add(lblDur);
-
-        _txtPopupDuration = new TextBox
-        {
-            Text = _draftSettings.PopupDurationMs.ToString(),
-            Left = 185,
-            Top = ay,
-            Width = 110,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        _txtPopupDuration.TextChanged += (s, e) => MarkDirty();
-        appearanceCard.Controls.Add(_txtPopupDuration);
-        ay += 28;
-
-        Label lblSize = new Label
-        {
-            Text = "Overlay Size (Width × Height):",
-            Left = 14,
-            Top = ay + 3,
-            Width = 170,
-            ForeColor = Color.FromArgb(200, 200, 200)
-        };
-        appearanceCard.Controls.Add(lblSize);
+        _layoutCard.Controls.Add(lblSize);
 
         _txtWidth = new TextBox
         {
@@ -1249,7 +1361,7 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        appearanceCard.Controls.Add(_txtWidth);
+        _layoutCard.Controls.Add(_txtWidth);
 
         Label lblBy = new Label
         {
@@ -1259,7 +1371,7 @@ public class SettingsForm : Form
             Width = 16,
             ForeColor = Color.FromArgb(180, 180, 180)
         };
-        appearanceCard.Controls.Add(lblBy);
+        _layoutCard.Controls.Add(lblBy);
 
         _txtHeight = new TextBox
         {
@@ -1276,16 +1388,78 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        appearanceCard.Controls.Add(_txtHeight);
+        _layoutCard.Controls.Add(_txtHeight);
         ay += 30;
+
+        Label lblDur = new Label
+        {
+            Text = "Hide Delay (ms):",
+            Left = 14,
+            Top = ay + 3,
+            Width = 165,
+            ForeColor = Color.FromArgb(200, 200, 200)
+        };
+        _layoutCard.Controls.Add(lblDur);
+
+        _txtPopupDuration = new TextBox
+        {
+            Text = _draftSettings.PopupDurationMs.ToString(),
+            Left = 185,
+            Top = ay,
+            Width = 80,
+            BackColor = Color.FromArgb(48, 48, 48),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _txtPopupDuration.TextChanged += (s, e) => MarkDirty();
+        _layoutCard.Controls.Add(_txtPopupDuration);
+
+        _layoutCard.FitHeightToContent(12);
+        page.InnerControls.Add(_layoutCard);
+        y = _layoutCard.Bottom + 10;
+
+        // 5. Audio & System Behavior Card
+        _behaviorCard = new Win11CardPanel
+        {
+            Left = 18,
+            Top = y,
+            Width = 468
+        };
+
+        int by = 10;
+        AddSectionHeader(_behaviorCard, "Audio & System", 14, ref by);
+
+        Label lblStep = new Label
+        {
+            Text = "Fade Step (%):",
+            Left = 14,
+            Top = by + 3,
+            Width = 165,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _behaviorCard.Controls.Add(lblStep);
+
+        _txtStepSize = new TextBox
+        {
+            Text = _draftSettings.StepSize.ToString(),
+            Left = 185,
+            Top = by,
+            Width = 80,
+            BackColor = Color.FromArgb(48, 48, 48),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _txtStepSize.TextChanged += (s, e) => MarkDirty();
+        _behaviorCard.Controls.Add(_txtStepSize);
+        by += 30;
 
         _chkInterpolation = new CheckBox
         {
-            Text = "Overlay Bar & Color Interpolation",
+            Text = "Smooth animation",
             Checked = _draftSettings.EnableInterpolation,
             Left = 14,
-            Top = ay + 2,
-            Width = 222,
+            Top = by + 2,
+            Width = 165,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1295,36 +1469,64 @@ public class SettingsForm : Form
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        appearanceCard.Controls.Add(_chkInterpolation);
+        _behaviorCard.Controls.Add(_chkInterpolation);
 
         Label lblSpeed = new Label
         {
             Text = "Speed (5-100):",
-            Left = 240,
-            Top = ay + 2,
-            Width = 92,
+            Left = 185,
+            Top = by + 3,
+            Width = 90,
             Height = 20,
-            TextAlign = ContentAlignment.MiddleRight,
             ForeColor = Color.FromArgb(200, 200, 200)
         };
-        appearanceCard.Controls.Add(lblSpeed);
+        _behaviorCard.Controls.Add(lblSpeed);
 
         _txtInterpSpeed = new TextBox
         {
             Text = _draftSettings.InterpolationSpeed.ToString(),
-            Left = lblSpeed.Right + 4,
-            Top = ay + 1,
-            Width = 58,
+            Left = 280,
+            Top = by + 1,
+            Width = 65,
             Enabled = _draftSettings.EnableInterpolation,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
         };
         _txtInterpSpeed.TextChanged += (s, e) => MarkDirty();
-        appearanceCard.Controls.Add(_txtInterpSpeed);
+        _behaviorCard.Controls.Add(_txtInterpSpeed);
+        by += 28;
 
-        appearanceCard.FitHeightToContent(12);
-        page.InnerControls.Add(appearanceCard);
+        _chkBuffer = new CheckBox
+        {
+            Text = "Center detent (pause at 50/50)",
+            Checked = _draftSettings.EnableEqualizationBuffer,
+            Left = 14,
+            Top = by,
+            Width = 430,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkBuffer.CheckedChanged += (s, e) => MarkDirty();
+        _behaviorCard.Controls.Add(_chkBuffer);
+        by += 26;
+
+        _chkStartup = new CheckBox
+        {
+            Text = "Run at Windows startup",
+            Checked = _draftSettings.RunOnStartup,
+            Left = 14,
+            Top = by,
+            Width = 430,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkStartup.CheckedChanged += (s, e) => MarkDirty();
+        _behaviorCard.Controls.Add(_chkStartup);
+
+        _behaviorCard.FitHeightToContent(12);
+        page.InnerControls.Add(_behaviorCard);
+
         page.RecalculateScroll();
         return page;
     }
@@ -1418,18 +1620,26 @@ public class SettingsForm : Form
         _chkFadeBgWithVolume.Checked = settings.FadeBgColorWithVolume;
         _chkFadeBgWithVolume.Enabled = settings.UseSourceBackgroundColors;
         _chkShowCarousel.Checked = settings.CarouselVisibleNeighbors > 0.05f;
+        _cmbCarouselStyle.Enabled = _chkShowCarousel.Checked;
         _chkEnableAnimations.Checked = settings.EnableCarouselAnimation;
         _chkEnableAnimations.Enabled = _chkShowCarousel.Checked;
         _chkCarouselBg.Checked = settings.CarouselBackgroundEnabled;
         _chkCarouselBg.Enabled = _chkShowCarousel.Checked;
 
         if (_unmutedColorBox != null)
-            _unmutedColorBox.BackColor = SafeParseHexColor(settings.UnmutedColor, Color.FromArgb(0, 168, 255));
+        {
+            _unmutedColorBox.SwatchColor = SafeParseHexColor(settings.UnmutedColor, Color.FromArgb(0, 168, 255));
+            _unmutedColorBox.Invalidate();
+        }
         if (_mutedColorBox != null)
-            _mutedColorBox.BackColor = SafeParseHexColor(settings.MutedColor, Color.FromArgb(255, 71, 87));
+        {
+            _mutedColorBox.SwatchColor = SafeParseHexColor(settings.MutedColor, Color.FromArgb(255, 71, 87));
+            _mutedColorBox.Invalidate();
+        }
 
         _cmbPosition.SelectedItem = settings.OverlayPosition;
         _txtPopupDuration.Text = settings.PopupDurationMs.ToString();
+        _txtOverlayOpacity.Text = settings.OverlayOpacity.ToString();
         _txtWidth.Text = settings.OverlayWidth.ToString();
         _txtHeight.Text = settings.OverlayHeight.ToString();
         _chkInterpolation.Checked = settings.EnableInterpolation;
@@ -1437,6 +1647,7 @@ public class SettingsForm : Form
         _txtInterpSpeed.Enabled = settings.EnableInterpolation;
 
         ReflowGeneralPage();
+        ReflowPersonalizationPage();
     }
 
     private void RevertChanges()
@@ -1460,9 +1671,11 @@ public class SettingsForm : Form
         _pageGroups.SuspendLayout();
         _pageGroups.InnerControls.Clear();
 
+        int cardW = Math.Max(468, _pageGroups.ContentViewportWidth - 28);
+
         Label lblInfo = new Label
         {
-            Text = "Create program groups to control multiple applications together:",
+            Text = "Bundle multiple apps to control them as a single source:",
             Left = 18,
             Top = 10,
             Width = 335,
@@ -1471,7 +1684,7 @@ public class SettingsForm : Form
         };
         _pageGroups.InnerControls.Add(lblInfo);
 
-        Button btnAddGroup = CreateModernButton("+ New Group", 360, 6, 126, 28, true);
+        ModernButton btnAddGroup = CreateModernButton("+ New Group", 18 + cardW - 126, 6, 126, 28, true);
         btnAddGroup.Click += (s, e) =>
         {
             _draftSettings.Groups.Add(new ProgramGroup
@@ -1494,7 +1707,7 @@ public class SettingsForm : Form
             {
                 Left = 18,
                 Top = cardY,
-                Width = 468,
+                Width = cardW,
                 Height = cardHeight
             };
 
@@ -1508,12 +1721,13 @@ public class SettingsForm : Form
             };
             card.Controls.Add(lblGroupName);
 
+            int nameBoxW = Math.Max(260, cardW - 196);
             TextBox txtGroupName = new TextBox
             {
                 Text = group.GroupName,
                 Left = 58,
                 Top = 11,
-                Width = 272,
+                Width = nameBoxW,
                 BackColor = Color.FromArgb(52, 52, 52),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
@@ -1525,19 +1739,7 @@ public class SettingsForm : Form
             };
             card.Controls.Add(txtGroupName);
 
-            Button btnRemoveGroup = new Button
-            {
-                Text = "Delete Group",
-                Left = 340,
-                Top = 10,
-                Width = 114,
-                Height = 25,
-                BackColor = Color.FromArgb(165, 45, 50),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
-            };
-            btnRemoveGroup.FlatAppearance.BorderSize = 0;
+            ModernButton btnRemoveGroup = CreateModernButton("Delete Group", cardW - 128, 10, 114, 25, false, isDanger: true);
             btnRemoveGroup.Click += (s, e) =>
             {
                 _draftSettings.Groups.Remove(group);
@@ -1547,6 +1749,8 @@ public class SettingsForm : Form
             card.Controls.Add(btnRemoveGroup);
 
             int innerY = 44;
+            int exeComboW = Math.Max(314, cardW - 154);
+
             for (int i = 0; i < group.Executables.Count; i++)
             {
                 int index = i;
@@ -1554,7 +1758,7 @@ public class SettingsForm : Form
                 {
                     Left = 12,
                     Top = innerY,
-                    Width = 314,
+                    Width = exeComboW,
                     DropDownStyle = ComboBoxStyle.DropDown,
                     BadgeResolver = ResolveDropdownBadge,
                     IconResolver = ResolveDropdownIcon
@@ -1581,7 +1785,7 @@ public class SettingsForm : Form
                 };
                 card.Controls.Add(cmbExe);
 
-                Button btnBrowseExe = CreateModernButton("Browse...", 332, innerY - 1, 82, 25, false);
+                ModernButton btnBrowseExe = CreateModernButton("Browse...", 12 + exeComboW + 6, innerY - 1, 82, 25, false);
                 btnBrowseExe.Click += (s, e) =>
                 {
                     BrowseForExecutable(cmbExe);
@@ -1589,7 +1793,7 @@ public class SettingsForm : Form
                 };
                 card.Controls.Add(btnBrowseExe);
 
-                Button btnRemoveExe = CreateModernButton("✕", 420, innerY - 1, 34, 25, false);
+                ModernButton btnRemoveExe = CreateModernButton("✕", 12 + exeComboW + 94, innerY - 1, 34, 25, false, isDanger: true);
                 btnRemoveExe.Click += (s, e) =>
                 {
                     group.Executables.RemoveAt(index);
@@ -1601,7 +1805,7 @@ public class SettingsForm : Form
                 innerY += 30;
             }
 
-            Button btnAddExe = CreateModernButton("+ Add Program to Group", 12, innerY + 2, 185, 25, false);
+            ModernButton btnAddExe = CreateModernButton("+ Add App", 12, innerY + 2, 145, 25, false);
             btnAddExe.Click += (s, e) =>
             {
                 group.Executables.Add("");
@@ -1675,7 +1879,7 @@ public class SettingsForm : Form
         return lbl;
     }
 
-    private (TextBox txt, Button btn) AddKeyBindControls(Control parent, ref int top, Action<int>? onCustomCommit, bool allowClear = false)
+    private (TextBox txt, ModernButton btn) AddKeyBindControls(Control parent, ref int top, Action<int>? onCustomCommit, bool allowClear = false)
     {
         int txtWidth = allowClear ? 162 : 196;
         TextBox txt = new TextBox
@@ -1691,13 +1895,13 @@ public class SettingsForm : Form
         };
         parent.Controls.Add(txt);
 
-        Button btnRecord = CreateModernButton("Record Combo", 352, top - 1, 102, 25, false);
+        ModernButton btnRecord = CreateModernButton("Bind Key", 352, top - 1, 102, 25, false);
         btnRecord.Click += (s, e) => StartRecording(btnRecord, txt, onCustomCommit);
         parent.Controls.Add(btnRecord);
 
         if (allowClear)
         {
-            Button btnClear = CreateModernButton("✕", 314, top - 1, 32, 25, false);
+            ModernButton btnClear = CreateModernButton("✕", 314, top - 1, 32, 25, false);
             btnClear.Click += (s, e) =>
             {
                 txt.Tag = 0;
@@ -1712,7 +1916,7 @@ public class SettingsForm : Form
         return (txt, btnRecord);
     }
 
-    private Panel AddColorPickerRow(Control parent, string labelText, string initialHex, Action<string> onColorChanged, ref int top)
+    private RoundedColorSwatch AddColorPickerRow(Control parent, string labelText, string initialHex, Action<string> onColorChanged, ref int top)
     {
         Label lbl = new Label
         {
@@ -1724,29 +1928,24 @@ public class SettingsForm : Form
         };
         parent.Controls.Add(lbl);
 
-        Panel colorBox = new Panel
+        RoundedColorSwatch colorBox = new RoundedColorSwatch
         {
             Left = 185,
             Top = top,
             Width = 265,
             Height = 22,
-            BackColor = SafeParseHexColor(initialHex, Color.FromArgb(0, 168, 255)),
-            Cursor = Cursors.Hand
-        };
-
-        colorBox.Paint += (s, e) =>
-        {
-            using Pen p = new Pen(Color.FromArgb(90, 90, 90));
-            e.Graphics.DrawRectangle(p, 0, 0, colorBox.Width - 1, colorBox.Height - 1);
+            CornerRadius = 6,
+            SwatchColor = SafeParseHexColor(initialHex, Color.FromArgb(0, 168, 255))
         };
 
         colorBox.Click += (s, e) =>
         {
             using ColorDialog dlg = new ColorDialog { FullOpen = true };
-            try { dlg.Color = colorBox.BackColor; } catch { }
-            if (dlg.ShowDialog() == DialogResult.OK)
+            try { dlg.Color = colorBox.SwatchColor; } catch { }
+            if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                colorBox.BackColor = dlg.Color;
+                colorBox.SwatchColor = dlg.Color;
+                colorBox.Invalidate();
                 string hex = ColorTranslator.ToHtml(dlg.Color);
                 onColorChanged(hex);
             }
@@ -1805,7 +2004,7 @@ public class SettingsForm : Form
         _activeTargetTextBox.Text = KeybindHelper.FormatLiveModifiers(e.Modifiers);
     }
 
-    private void StartRecording(Button? btn, TextBox targetBox, Action<int>? onCommit = null)
+    private void StartRecording(ModernButton? btn, TextBox targetBox, Action<int>? onCommit = null)
     {
         if (_isRecording) CancelRecording();
         _isRecording = true;
@@ -1820,6 +2019,8 @@ public class SettingsForm : Form
             _previousButtonText = btn.Text;
             btn.Text = "Listening...";
             btn.BackColor = Color.FromArgb(205, 95, 0);
+            btn.HoverBackColor = Color.FromArgb(220, 110, 15);
+            btn.Invalidate();
         }
     }
 
@@ -1830,6 +2031,8 @@ public class SettingsForm : Form
         {
             _activeRecordButton.Text = _previousButtonText;
             _activeRecordButton.BackColor = Color.FromArgb(52, 52, 52);
+            _activeRecordButton.HoverBackColor = Color.FromArgb(66, 66, 66);
+            _activeRecordButton.Invalidate();
         }
         _isRecording = false;
         _activeRecordButton = null;
@@ -1940,6 +2143,7 @@ public class SettingsForm : Form
         _draftSettings.KeepOverlayOnWhileSettingsOpen = _chkKeepOverlayAlwaysOn.Checked;
         _draftSettings.OverlayPosition = _cmbPosition.SelectedItem?.ToString() ?? "Bottom Center";
         _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration.Text, 2500), 500, 10000);
+        _draftSettings.OverlayOpacity = Math.Clamp(ParseInt(_txtOverlayOpacity.Text, 100), 10, 100);
         _draftSettings.StepSize = Math.Clamp(ParseInt(_txtStepSize.Text, 10), 1, 100);
         _draftSettings.OverlayWidth = Math.Clamp(ParseInt(_txtWidth.Text, 360), 120, 2000);
         _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight.Text, 80), 50, 1000);
@@ -1970,6 +2174,7 @@ public class SettingsForm : Form
         RefreshGroupsTabUI();
         PopulateCycleListUI();
         ReflowGeneralPage();
+        ReflowPersonalizationPage();
         MarkClean();
     }
 }

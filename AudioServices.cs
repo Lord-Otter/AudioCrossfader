@@ -5,7 +5,6 @@ using Microsoft.Win32;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 
-// Extracts and caches 32x32 application icons and dedicated group icons in memory
 public static class AppIconCache
 {
     private static readonly ConcurrentDictionary<string, Bitmap?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
