@@ -76,7 +76,8 @@ public class AudioCrossfaderWorker
     private string _hudSource2 = "";
     private string _hudSource2Color = "#4A2040";
     private bool _hudIsStandalone = false;
-    private bool _hudIsSingleSource = false;
+    private ControlModeState _hudModeState = ControlModeState.Volume;
+    private bool _hudIsSingleSource => _hudModeState == ControlModeState.Volume;
 
     private readonly List<CrossfadeOverlayForm> _overlays = new();
     private Thread? _workerThread;
@@ -169,7 +170,7 @@ public class AudioCrossfaderWorker
         _hudSource2 = _settings.Source2;
         _hudSource2Color = _settings.Source2Color;
         _hudIsStandalone = false;
-        _hudIsSingleSource = string.Equals(_settings.ActiveControlMode, "Standard Volume", StringComparison.OrdinalIgnoreCase);
+        _hudModeState = ControlModeStateMachine.ParseState(_settings.ActiveControlMode);
     }
 
     private void SyncCycleIndices()
@@ -381,10 +382,10 @@ public class AudioCrossfaderWorker
     {
         _hudSource1 = NormalizeSourceIdentifier(pair.Source1);
         _hudSource1Color = pair.Color1Hex;
-        _hudSource2 = pair.IsSingleMode ? "" : NormalizeSourceIdentifier(pair.Source2);
+        _hudSource2 = pair.IsVolumeMode ? "" : NormalizeSourceIdentifier(pair.Source2);
         _hudSource2Color = pair.Color2Hex;
         _hudIsStandalone = true;
-        _hudIsSingleSource = pair.IsSingleMode;
+        _hudModeState = pair.ModeState;
     }
 
     private (List<CycleDisplayItem> items, int activeIndex) PerformCycleStep(AudioSessionCache sessionCache, int direction)
@@ -548,7 +549,7 @@ public class AudioCrossfaderWorker
                     _hudSource2 = cfgToShow.Source2;
                     _hudSource2Color = cfgToShow.Source2Color;
                     _hudIsStandalone = false;
-                    _hudIsSingleSource = string.Equals(cfgToShow.ActiveControlMode, "Standard Volume", StringComparison.OrdinalIgnoreCase);
+                    _hudModeState = ControlModeStateMachine.ParseState(cfgToShow.ActiveControlMode);
                 }
                 ApplyVolumesForPair(sessionCache, _hudSource1, _hudSource2, _hudSource1Color, _hudSource2Color, false, true);
             }
@@ -615,18 +616,24 @@ public class AudioCrossfaderWorker
             if (upSteps > 0 || downSteps > 0 || muteSteps > 0)
             {
                 bool invertActive = false;
+                ControlModeState activeCarouselMode = ControlModeState.Balance;
                 lock (_stateLock)
                 {
                     SnapHudToCarouselPair();
                     if (_cfCycleIndex >= 0 && _cfCycleIndex < _settings.CrossfadeCycleList.Count)
                     {
-                        invertActive = _settings.CrossfadeCycleList[_cfCycleIndex].InvertDirection;
+                        var cp = _settings.CrossfadeCycleList[_cfCycleIndex];
+                        invertActive = cp.InvertDirection;
+                        activeCarouselMode = cp.ModeState;
                     }
                 }
 
-                // Default for Crossfade is -1.0f (your preferred direction); Default for Single Volume is +1.0f
-                float baseSign = _hudIsSingleSource ? 1.0f : -1.0f;
+                float baseSign = (_hudModeState == ControlModeState.Volume) ? 1.0f : -1.0f;
                 float dirMultiplier = invertActive ? -baseSign : baseSign;
+
+                // Crossfade uses full step size (divisor 1.0f), Balance uses half (divisor 2.0f), Volume uses full (1.0f)
+                float globalDivisor = (activeCarouselMode == ControlModeState.Balance) ? 2.0f : 1.0f;
+                float globalStepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / globalDivisor) / 100.0f;
 
                 var carouselPairState = GetOrCreatePairState(_settings.Source1, _settings.Source2, _hudIsSingleSource);
 
@@ -637,11 +644,11 @@ public class AudioCrossfaderWorker
                 }
                 if (upSteps > 0)
                 {
-                    StepCrossfadeState(carouselPairState, dirMultiplier * stepIncrement * upSteps, _hudIsSingleSource);
+                    StepCrossfadeState(carouselPairState, dirMultiplier * globalStepIncrement * upSteps, activeCarouselMode);
                 }
                 if (downSteps > 0)
                 {
-                    StepCrossfadeState(carouselPairState, -dirMultiplier * stepIncrement * downSteps, _hudIsSingleSource);
+                    StepCrossfadeState(carouselPairState, -dirMultiplier * globalStepIncrement * downSteps, activeCarouselMode);
                 }
 
                 physicalInputRegistered = true;
@@ -674,6 +681,10 @@ public class AudioCrossfaderWorker
                 {
                     float baseSign = pair.IsSingleMode ? 1.0f : -1.0f;
                     float pairDirMultiplier = pair.InvertDirection ? -baseSign : baseSign;
+                    
+                    float pairDivisor = (pair.ModeState == ControlModeState.Balance) ? 2.0f : 1.0f;
+                    float pairStepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / pairDivisor) / 100.0f;
+
                     var pState = GetOrCreatePairState(pair.Source1, pair.Source2, pair.IsSingleMode);
 
                     if (pMuteSteps > 0)
@@ -683,18 +694,18 @@ public class AudioCrossfaderWorker
                     }
                     if (pUpSteps > 0)
                     {
-                        StepCrossfadeState(pState, pairDirMultiplier * stepIncrement * pUpSteps, pair.IsSingleMode);
+                        StepCrossfadeState(pState, pairDirMultiplier * pairStepIncrement * pUpSteps, pair.ModeState);
                     }
                     if (pDownSteps > 0)
                     {
-                        StepCrossfadeState(pState, -pairDirMultiplier * stepIncrement * pDownSteps, pair.IsSingleMode);
+                        StepCrossfadeState(pState, -pairDirMultiplier * pairStepIncrement * pDownSteps, pair.ModeState);
                     }
 
                     lock (_stateLock)
                     {
                         ShowPairOnHudTemporarily(pair);
                     }
-                    ApplyPairAudioOnly(sessionCache, pair.Source1, pair.Source2, pState, pair.IsSingleMode);
+                    ApplyPairAudioOnly(sessionCache, pair.Source1, pair.Source2, pState, pair.ModeState);
                     physicalInputRegistered = true;
                 }
             }
@@ -752,9 +763,11 @@ public class AudioCrossfaderWorker
         ResetAllConfiguredExecutables(sessionCache);
     }
 
-    private void StepCrossfadeState(PairRuntimeState state, float delta, bool isSingleSource = false)
+    private void StepCrossfadeState(PairRuntimeState state, float delta, ControlModeState modeState)
     {
-        float stepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / (isSingleSource ? 1.0f : 2.0f)) / 100.0f;
+        bool isSingleSource = modeState == ControlModeState.Volume;
+        float divisor = (modeState == ControlModeState.Balance) ? 2.0f : 1.0f;
+        float stepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / divisor) / 100.0f;
         float snapEpsilon = Math.Min(0.015f, stepIncrement * 0.45f);
 
         float SnapEndpoints(float val)
@@ -769,12 +782,6 @@ public class AudioCrossfaderWorker
         {
             float actualDelta = isSingleSource ? delta * 2.0f : delta;
             state.TargetPosition = SnapEndpoints(state.TargetPosition + actualDelta);
-            return;
-        }
-
-        if (!_settings.EnableEqualizationBuffer)
-        {
-            state.TargetPosition = SnapEndpoints(state.TargetPosition + delta);
             return;
         }
 
@@ -818,11 +825,18 @@ public class AudioCrossfaderWorker
         }
     }
 
-    private void ApplyPairAudioOnly(AudioSessionCache sessionCache, string source1, string source2, PairRuntimeState state, bool isSingleSource)
+    private void ApplyPairAudioOnly(
+        AudioSessionCache sessionCache,
+        string source1,
+        string source2,
+        PairRuntimeState state,
+        ControlModeState modeState)
     {
-        if (isSingleSource)
+        var (rawVol1, rawVol2) = ControlModeStateMachine.EvaluateVolumes(modeState, state.TargetPosition);
+
+        if (modeState == ControlModeState.Volume)
         {
-            float vol = Math.Clamp(state.TargetPosition, 0.0f, 1.0f);
+            float vol = Math.Clamp(rawVol1, 0.0f, 1.0f);
             if (vol <= 0.01f) vol = 0.0f;
             if (vol >= 0.99f) vol = 1.0f;
 
@@ -835,12 +849,9 @@ public class AudioCrossfaderWorker
             }
             return;
         }
-        
-        float audioApp1Vol = (state.TargetPosition >= 0.5f) ? 1.0f : (state.TargetPosition * 2.0f);
-        float audioApp2Vol = (state.TargetPosition >= 0.5f) ? (1.0f - ((state.TargetPosition - 0.5f) * 2.0f)) : 1.0f;
 
-        audioApp1Vol = Math.Clamp(audioApp1Vol, 0.0f, 1.0f);
-        audioApp2Vol = Math.Clamp(audioApp2Vol, 0.0f, 1.0f);
+        float audioApp1Vol = Math.Clamp(rawVol1, 0.0f, 1.0f);
+        float audioApp2Vol = Math.Clamp(rawVol2, 0.0f, 1.0f);
 
         if (audioApp1Vol <= 0.01f) audioApp1Vol = 0.0f;
         if (audioApp1Vol >= 0.99f) audioApp1Vol = 1.0f;
@@ -873,13 +884,13 @@ public class AudioCrossfaderWorker
     }
 
     private void ApplyVolumesForPair(
-    AudioSessionCache sessionCache,
-    string s1,
-    string s2,
-    string c1,
-    string c2,
-    bool updateAudioSessions,
-    bool forceShowPopup)
+        AudioSessionCache sessionCache,
+        string s1,
+        string s2,
+        string c1,
+        string c2,
+        bool updateAudioSessions,
+        bool forceShowPopup)
     {
         var state = GetOrCreatePairState(s1, s2, _hudIsSingleSource);
 
@@ -887,18 +898,11 @@ public class AudioCrossfaderWorker
         {
             lock (_stateLock)
             {
-                ApplyPairAudioOnly(sessionCache, s1, s2, state, _hudIsSingleSource);
+                ApplyPairAudioOnly(sessionCache, s1, s2, state, _hudModeState);
             }
         }
 
-        float visualApp1Vol = _hudIsSingleSource
-            ? Math.Clamp(state.VisualPosition, 0.0f, 1.0f)
-            : Math.Clamp((state.VisualPosition >= 0.5f) ? 1.0f : (state.VisualPosition * 2.0f), 0.0f, 1.0f);
-
-        float visualApp2Vol = _hudIsSingleSource
-            ? 0.0f
-            : Math.Clamp((state.VisualPosition >= 0.5f) ? (1.0f - ((state.VisualPosition - 0.5f) * 2.0f)) : 1.0f, 0.0f, 1.0f);
-
+        var (visualApp1Vol, visualApp2Vol) = ControlModeStateMachine.EvaluateVolumes(_hudModeState, state.VisualPosition);
         string effectiveS2 = _hudIsSingleSource ? "" : s2;
 
         foreach (var ov in _overlays.ToList())

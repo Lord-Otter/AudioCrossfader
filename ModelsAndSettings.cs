@@ -1,5 +1,106 @@
 using System.Drawing;
 
+public enum SettingsTabState
+{
+    Sources = 0,
+    Groups = 1,
+    AppearanceAndBehavior = 2
+}
+
+public enum ControlModeState
+{
+    Volume,
+    Balance,
+    Crossfade
+}
+
+public sealed class StateMachine<TState> where TState : struct, Enum
+{
+    private readonly Dictionary<TState, Action?> _onEnter = new();
+    private readonly Dictionary<TState, Action?> _onExit = new();
+
+    public TState CurrentState { get; private set; }
+
+    public StateMachine(TState initialState)
+    {
+        CurrentState = initialState;
+    }
+
+    public void ConfigureState(TState state, Action? onEnter = null, Action? onExit = null)
+    {
+        _onEnter[state] = onEnter;
+        _onExit[state] = onExit;
+    }
+
+    public bool TransitionTo(TState nextState, bool force = false)
+    {
+        if (!force && EqualityComparer<TState>.Default.Equals(CurrentState, nextState))
+            return false;
+
+        if (_onExit.TryGetValue(CurrentState, out var exitAction))
+            exitAction?.Invoke();
+
+        CurrentState = nextState;
+
+        if (_onEnter.TryGetValue(CurrentState, out var enterAction))
+            enterAction?.Invoke();
+
+        return true;
+    }
+}
+
+public static class ControlModeStateMachine
+{
+    public static ControlModeState ParseState(string? rawMode)
+    {
+        if (string.Equals(rawMode, "Volume", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(rawMode, "Standard Volume", StringComparison.OrdinalIgnoreCase))
+        {
+            return ControlModeState.Volume;
+        }
+
+        if (string.Equals(rawMode, "Crossfade", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(rawMode, "True Crossfade", StringComparison.OrdinalIgnoreCase))
+        {
+            return ControlModeState.Crossfade;
+        }
+
+        return ControlModeState.Balance;
+    }
+
+    public static string ToDisplayName(ControlModeState state) => state switch
+    {
+        ControlModeState.Volume => "Volume",
+        ControlModeState.Crossfade => "Crossfade",
+        _ => "Balance"
+    };
+
+    public static bool IsSingleSource(ControlModeState state) => state == ControlModeState.Volume;
+
+    public static float GetBaseDirectionSign(ControlModeState state) =>
+        state == ControlModeState.Volume ? 1.0f : -1.0f;
+
+    public static int GetTargetCardHeight(ControlModeState state, bool isCarouselList) => state switch
+    {
+        ControlModeState.Volume => isCarouselList ? 68 : 144,
+        _ => isCarouselList ? 100 : 176
+    };
+
+    public static (float vol1, float vol2) EvaluateVolumes(ControlModeState state, float position)
+    {
+        float pos = Math.Clamp(position, 0.0f, 1.0f);
+        return state switch
+        {
+            ControlModeState.Volume => (pos, 0.0f),
+            ControlModeState.Crossfade => (pos, 1.0f - pos),
+            _ => (
+                pos >= 0.5f ? 1.0f : (pos * 2.0f),
+                pos >= 0.5f ? (1.0f - ((pos - 0.5f) * 2.0f)) : 1.0f
+            )
+        };
+    }
+}
+
 public readonly struct BadgeInfo
 {
     public string Text { get; }
@@ -57,11 +158,27 @@ public class CrossfadeCyclePair
     public int KeyDown { get; set; } = 0;
     public int KeyMute { get; set; } = 0;
 
-    public string ControlMode { get; set; } = "Crossfade";
+    public string ControlMode { get; set; } = "Volume";
     public bool InvertDirection { get; set; } = false;
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool IsSingleMode => string.Equals(ControlMode, "Standard Volume", StringComparison.OrdinalIgnoreCase);
+    public ControlModeState ModeState
+    {
+        get => ControlModeStateMachine.ParseState(ControlMode);
+        set => ControlMode = ControlModeStateMachine.ToDisplayName(value);
+    }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsVolumeMode => ModeState == ControlModeState.Volume;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsSingleMode => IsVolumeMode;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsBalanceMode => ModeState == ControlModeState.Balance;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsCrossfadeMode => ModeState == ControlModeState.Crossfade;
 
     public CrossfadeCyclePair Clone()
     {
@@ -228,7 +345,7 @@ public class AppSettings
 
     public int GetEffectiveCycleNextKey() => CycleNextKey != 0 ? CycleNextKey : QuickSwapKey;
 
-    public string ActiveControlMode { get; set; } = "Crossfade";
+    public string ActiveControlMode { get; set; } = "Volume";
 
     public IEnumerable<CrossfadeCyclePair> GetAllConfiguredPairs()
     {

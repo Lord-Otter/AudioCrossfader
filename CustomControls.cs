@@ -142,6 +142,7 @@ public class ModernButton : Button
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
         Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(39, 39, 39);
+        Win11CardPanel? parentCard = null;
         if (parentBg == Color.Transparent)
         {
             Control? p = this.Parent;
@@ -149,6 +150,7 @@ public class ModernButton : Button
             {
                 if (p is Win11CardPanel card)
                 {
+                    parentCard = card;
                     parentBg = card.FillColor;
                     break;
                 }
@@ -161,29 +163,56 @@ public class ModernButton : Button
         Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
         if (rect.Width <= 0 || rect.Height <= 0) return;
 
-        Color fill = this.BackColor;
-        if (!this.Enabled)
+        // If this button sits inside the top navigation track with a sliding blue pill,
+        // draw the sliding pill in local coordinates so it glides seamlessly across buttons.
+        if (parentCard != null && parentCard.ShowHighlightPill)
         {
-            fill = Color.FromArgb(42, 42, 42);
-        }
-        else if (_isPressed)
-        {
-            fill = PressedBackColor;
-        }
-        else if (_isHovered)
-        {
-            fill = HoverBackColor;
-        }
+            if (_isHovered && !_isPressed)
+            {
+                using GraphicsPath hoverPath = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
+                using SolidBrush hoverBrush = new SolidBrush(Color.FromArgb(46, 46, 46));
+                g.FillPath(hoverBrush, hoverPath);
+            }
 
-        using GraphicsPath path = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
-        using SolidBrush brush = new SolidBrush(fill);
-        g.FillPath(brush, path);
+            RectangleF localPill = new RectangleF(
+                parentCard.HighlightPillRect.X - this.Left,
+                parentCard.HighlightPillRect.Y - this.Top,
+                parentCard.HighlightPillRect.Width,
+                parentCard.HighlightPillRect.Height);
 
-        if (ShowBorder)
+            if (localPill.Right > 0 && localPill.Left < this.Width)
+            {
+                using GraphicsPath pillPath = Win11CardPanel.CreateRoundRectF(localPill, CornerRadius);
+                using SolidBrush pillBrush = new SolidBrush(parentCard.HighlightPillColor);
+                g.FillPath(pillBrush, pillPath);
+            }
+        }
+        else
         {
-            Color bCol = this.Enabled ? BorderColor : Color.FromArgb(55, 55, 55);
-            using Pen pen = new Pen(bCol, 1f);
-            g.DrawPath(pen, path);
+            Color fill = this.BackColor;
+            if (!this.Enabled)
+            {
+                fill = Color.FromArgb(42, 42, 42);
+            }
+            else if (_isPressed)
+            {
+                fill = PressedBackColor;
+            }
+            else if (_isHovered)
+            {
+                fill = HoverBackColor;
+            }
+
+            using GraphicsPath path = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
+            using SolidBrush brush = new SolidBrush(fill);
+            g.FillPath(brush, path);
+
+            if (ShowBorder)
+            {
+                Color bCol = this.Enabled ? BorderColor : Color.FromArgb(55, 55, 55);
+                using Pen pen = new Pen(bCol, 1f);
+                g.DrawPath(pen, path);
+            }
         }
 
         Color textCol = this.Enabled ? this.ForeColor : Color.FromArgb(115, 115, 115);
@@ -384,7 +413,6 @@ public class KeybindBox : Control
     }
 }
 
-// In CustomControls.cs -> Replace DarkScrollPanel with this updated version
 public class DarkScrollPanel : Panel
 {
     private readonly Panel _viewport;
@@ -471,6 +499,26 @@ public class DarkScrollPanel : Panel
         Invalidate();
     }
 
+    private Rectangle GetVerticalThumbRect()
+    {
+        if (_contentHeight <= _viewport.Height || _viewport.Height <= 0) return Rectangle.Empty;
+        int trackH = _viewport.Height - 8;
+        int thumbH = Math.Max(28, (int)((float)_viewport.Height / _contentHeight * trackH));
+        int maxScroll = _contentHeight - _viewport.Height;
+        int thumbTop = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetY / maxScroll * (trackH - thumbH)) : 0);
+        return new Rectangle(this.ClientSize.Width - ScrollBarSize + 2, thumbTop, 6, thumbH);
+    }
+
+    private Rectangle GetHorizontalThumbRect()
+    {
+        if (_contentWidth <= _viewport.Width || _viewport.Width <= 0) return Rectangle.Empty;
+        int trackW = _viewport.Width - 8;
+        int thumbW = Math.Max(28, (int)((float)_viewport.Width / _contentWidth * trackW));
+        int maxScroll = _contentWidth - _viewport.Width;
+        int thumbLeft = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetX / maxScroll * (trackW - thumbW)) : 0);
+        return new Rectangle(thumbLeft, this.ClientSize.Height - ScrollBarSize + 2, thumbW, 6);
+    }
+
     private void ClampAndApplyScroll()
     {
         int maxScrollY = Math.Max(0, _contentHeight - Math.Max(1, _viewport.Height));
@@ -502,26 +550,6 @@ public class DarkScrollPanel : Panel
         }
         ClampAndApplyScroll();
         Invalidate();
-    }
-
-    private Rectangle GetVerticalThumbRect()
-    {
-        if (_contentHeight <= _viewport.Height || _viewport.Height <= 0) return Rectangle.Empty;
-        int trackH = _viewport.Height - 8;
-        int thumbH = Math.Max(28, (int)((float)_viewport.Height / _contentHeight * trackH));
-        int maxScroll = _contentHeight - _viewport.Height;
-        int thumbTop = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetY / maxScroll * (trackH - thumbH)) : 0);
-        return new Rectangle(this.ClientSize.Width - ScrollBarSize + 2, thumbTop, 6, thumbH);
-    }
-
-    private Rectangle GetHorizontalThumbRect()
-    {
-        if (_contentWidth <= _viewport.Width || _viewport.Width <= 0) return Rectangle.Empty;
-        int trackW = _viewport.Width - 8;
-        int thumbW = Math.Max(28, (int)((float)_viewport.Width / _contentWidth * trackW));
-        int maxScroll = _contentWidth - _viewport.Width;
-        int thumbLeft = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetX / maxScroll * (trackW - thumbW)) : 0);
-        return new Rectangle(thumbLeft, this.ClientSize.Height - ScrollBarSize + 2, thumbW, 6);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -617,6 +645,7 @@ public class DarkScrollPanel : Panel
 }
 
 // Custom Windows 11 Rounded Surface Card
+// Custom Windows 11 Rounded Surface Card
 public class Win11CardPanel : Panel
 {
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -627,6 +656,15 @@ public class Win11CardPanel : Panel
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public int CornerRadius { get; set; } = 8;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowHighlightPill { get; set; } = false;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public RectangleF HighlightPillRect { get; set; } = RectangleF.Empty;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color HighlightPillColor { get; set; } = Color.FromArgb(0, 120, 212);
 
     public Win11CardPanel()
     {
@@ -662,6 +700,14 @@ public class Win11CardPanel : Panel
         using Pen borderPen = new Pen(BorderColor, 1f);
 
         e.Graphics.FillPath(fillBrush, path);
+
+        if (ShowHighlightPill && HighlightPillRect.Width > 0 && HighlightPillRect.Height > 0)
+        {
+            using GraphicsPath pillPath = CreateRoundRectF(HighlightPillRect, 6f);
+            using SolidBrush pillBrush = new SolidBrush(HighlightPillColor);
+            e.Graphics.FillPath(pillBrush, pillPath);
+        }
+
         e.Graphics.DrawPath(borderPen, path);
     }
 

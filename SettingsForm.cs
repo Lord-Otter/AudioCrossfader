@@ -12,6 +12,43 @@ public class SettingsForm : Form
 
     private Panel _monitorRowsPanel = null!;
 
+    private bool _isResizing = false;
+    private bool _resizePending = false;
+    private System.Windows.Forms.Timer? _resizeThrottleTimer;
+    private const int WM_ENTERSIZEMOVE = 0x0231;
+    private const int WM_EXITSIZEMOVE = 0x0232;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_ENTERSIZEMOVE)
+        {
+            _isResizing = true;
+            if (_resizeThrottleTimer == null)
+            {
+                _resizeThrottleTimer = new System.Windows.Forms.Timer { Interval = 55 };
+                _resizeThrottleTimer.Tick += (s, e) =>
+                {
+                    if (_resizePending)
+                    {
+                        _resizePending = false;
+                        PerformWindowResizeLayout();
+                    }
+                };
+            }
+            _resizeThrottleTimer.Start();
+        }
+        else if (m.Msg == WM_EXITSIZEMOVE)
+        {
+            _isResizing = false;
+            _resizePending = false;
+            _resizeThrottleTimer?.Stop();
+            PerformWindowResizeLayout();
+            Invalidate();
+        }
+
+        base.WndProc(ref m);
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct DEVMODE
     {
@@ -156,6 +193,15 @@ public class SettingsForm : Form
     private bool _isInitializing = true;
     private int _activeTabIndex = 0;
 
+    private StateMachine<SettingsTabState> _tabStateMachine = null!;
+    private System.Windows.Forms.Timer? _navPillAnimTimer;
+    private float _navPillStartX;
+    private float _navPillStartW;
+    private float _navPillTargetX;
+    private float _navPillTargetW;
+    private readonly Stopwatch _navPillWatch = new Stopwatch();
+    private bool _isPairListAnimating = false;
+
     public SettingsForm(AppSettings initialSettings, TrayApplicationContext context)
     {
         _context = context;
@@ -250,7 +296,7 @@ public class SettingsForm : Form
         catch { }
     }
 
-    private void HandleWindowResize()
+    /*private void HandleWindowResize()
     {
         if (_pillTrack == null) return;
 
@@ -258,7 +304,6 @@ public class SettingsForm : Form
         int viewportW = Math.Max(496, clientW - 14);
         int cardW = Math.Max(468, viewportW - 28);
 
-        // Stretch top navigation bar across the window
         int effectiveBarW = Math.Max(468, clientW - 36);
         _pillTrack.Width = effectiveBarW;
 
@@ -314,6 +359,122 @@ public class SettingsForm : Form
             ReflowGeneralPage();
             ReflowPersonalizationPage();
             _pageGroups?.RecalculateScroll();
+        }
+    }*/
+
+    private void HandleWindowResize()
+    {
+        if (_pillTrack == null) return;
+
+        if (_isResizing)
+        {
+            _resizePending = true;
+            return;
+        }
+
+        PerformWindowResizeLayout();
+    }
+
+    private void PerformWindowResizeLayout()
+    {
+        if (_pillTrack == null) return;
+
+        this.SuspendLayout();
+        try
+        {
+            int clientW = ClientSize.Width;
+            // Both top navigation bar and main cards use clientW - 36 (18px left, 18px right)
+            // so the right edge of the cards aligns with the top tabs box.
+            int effectiveBarW = Math.Max(468, clientW - 36);
+            int cardW = effectiveBarW;
+
+            _pillTrack.Width = effectiveBarW;
+
+            int tabGap = 4;
+            int availW = effectiveBarW - 8 - (tabGap * 2);
+            int tab1W = availW / 3;
+            int tab2W = availW / 3;
+            int tab3W = availW - tab1W - tab2W;
+
+            _navBtnGeneral.Left = 4;
+            _navBtnGeneral.Width = tab1W;
+
+            _navBtnGroups.Left = _navBtnGeneral.Right + tabGap;
+            _navBtnGroups.Width = tab2W;
+
+            _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap;
+            _navBtnPersonalization.Width = tab3W;
+
+            ModernButton activeNavBtn = _activeTabIndex switch
+            {
+                1 => _navBtnGroups,
+                2 => _navBtnPersonalization,
+                _ => _navBtnGeneral
+            };
+            AnimateNavPillTo(activeNavBtn, immediate: true);
+
+            if (_btnSave != null && _btnRevert != null && _lblStatus != null)
+            {
+                _lblStatus.Width = effectiveBarW;
+                _btnSave.Left = Math.Max(
+                    _btnRevert.Right + 12,
+                    clientW - 18 - _btnSave.Width);
+            }
+
+            if (_cycleListCard != null)
+            {
+                _cycleListCard.Width = cardW;
+                _btnAddCycleEntry.Left = cardW - 14 - _btnAddCycleEntry.Width;
+                _cycleSlotsHost.Width = cardW - 24;
+
+                if (_globalKeysHost != null)
+                {
+                    _globalKeysHost.Width = cardW - 24;
+
+                    int kbWidth = Math.Max(220, _globalKeysHost.Width - 142);
+
+                    _kbKey1.Width = kbWidth;
+                    _kbKey2.Width = kbWidth;
+                    _kbKey3.Width = kbWidth;
+                    _cmbGlobalMuteMode.Width = kbWidth;
+                    _kbKeyCycleNext.Width = kbWidth;
+                    _kbKeyCyclePrev.Width = kbWidth;
+                }
+            }
+
+            if (_standaloneListCard != null)
+            {
+                _standaloneListCard.Width = cardW;
+                _btnAddStandaloneEntry.Left = cardW - 14 - _btnAddStandaloneEntry.Width;
+                _standaloneSlotsHost.Width = cardW - 24;
+            }
+
+            if (_isInitializing)
+                return;
+
+            // During interactive drag, only resize the currently visible tab to keep the catch-up snappy
+            if (!_isResizing || _activeTabIndex == 0)
+            {
+                ResizeExistingPairCards(_cycleSlotsHost);
+                ResizeExistingPairCards(_standaloneSlotsHost);
+                ReflowGeneralPage();
+            }
+
+            if (!_isResizing || _activeTabIndex == 1)
+            {
+                ResizeExistingGroupCards(cardW);
+                _pageGroups?.RecalculateScroll();
+            }
+
+            if (!_isResizing || _activeTabIndex == 2)
+            {
+                StretchPersonalizationControls(cardW);
+                ReflowPersonalizationPage();
+            }
+        }
+        finally
+        {
+            this.ResumeLayout(true);
         }
     }
 
@@ -412,7 +573,9 @@ public class SettingsForm : Form
             FillColor = Color.FromArgb(37, 37, 37),
             BorderColor = Color.FromArgb(52, 52, 52),
             CornerRadius = 8,
-            Padding = new Padding(3)
+            Padding = new Padding(3),
+            ShowHighlightPill = true,
+            HighlightPillRect = new RectangleF(4, 4, 152, 30)
         };
 
         _navBtnGeneral = CreateNavTabButton("Sources", 4, 4, 152, () => SwitchTab(0));
@@ -425,6 +588,67 @@ public class SettingsForm : Form
         header.Controls.Add(_pillTrack);
 
         return header;
+    }
+
+    private void InitializeTabStateMachine()
+    {
+        if (_tabStateMachine != null) return;
+
+        _tabStateMachine = new StateMachine<SettingsTabState>(SettingsTabState.Sources);
+
+        _tabStateMachine.ConfigureState(
+            SettingsTabState.Sources,
+            onEnter: () =>
+            {
+                _activeTabIndex = 0;
+                _pageGeneral.Visible = true;
+                StyleNavButton(_navBtnGeneral, true);
+                AnimateNavPillTo(_navBtnGeneral);
+                ResizeExistingPairCards(_cycleSlotsHost);
+                ResizeExistingPairCards(_standaloneSlotsHost);
+                ReflowGeneralPage();
+            },
+            onExit: () =>
+            {
+                _pageGeneral.Visible = false;
+                StyleNavButton(_navBtnGeneral, false);
+            });
+
+        _tabStateMachine.ConfigureState(
+            SettingsTabState.Groups,
+            onEnter: () =>
+            {
+                _activeTabIndex = 1;
+                _pageGroups.Visible = true;
+                StyleNavButton(_navBtnGroups, true);
+                AnimateNavPillTo(_navBtnGroups);
+                int cardW = Math.Max(468, ClientSize.Width - 36);
+                ResizeExistingGroupCards(cardW);
+                _pageGroups.RecalculateScroll();
+            },
+            onExit: () =>
+            {
+                _pageGroups.Visible = false;
+                StyleNavButton(_navBtnGroups, false);
+            });
+
+        _tabStateMachine.ConfigureState(
+            SettingsTabState.AppearanceAndBehavior,
+            onEnter: () =>
+            {
+                _activeTabIndex = 2;
+                _pagePersonalization.Visible = true;
+                StyleNavButton(_navBtnPersonalization, true);
+                AnimateNavPillTo(_navBtnPersonalization);
+                int cardW = Math.Max(468, ClientSize.Width - 36);
+                StretchPersonalizationControls(cardW);
+                ReflowPersonalizationPage();
+            },
+            onExit: () =>
+            {
+                _pagePersonalization.Visible = false;
+                StyleNavButton(_navBtnPersonalization, false);
+            });
     }
 
     private ModernButton CreateNavTabButton(string text, int left, int top, int width, Action onClick)
@@ -450,27 +674,86 @@ public class SettingsForm : Form
 
     private void SwitchTab(int index)
     {
-        _activeTabIndex = index;
-        _pageGeneral.Visible = (index == 0);
-        _pageGroups.Visible = (index == 1);
-        _pagePersonalization.Visible = (index == 2);
-
-        StyleNavButton(_navBtnGeneral, index == 0);
-        StyleNavButton(_navBtnGroups, index == 1);
-        StyleNavButton(_navBtnPersonalization, index == 2);
-
-        // Ensure the active page and all its child controls are sized and reflowed
+        InitializeTabStateMachine();
+        CancelRecording();
         this.ActiveControl = null;
-        HandleWindowResize();
+
+        SettingsTabState targetState = index switch
+        {
+            1 => SettingsTabState.Groups,
+            2 => SettingsTabState.AppearanceAndBehavior,
+            _ => SettingsTabState.Sources
+        };
+
+        _tabStateMachine.TransitionTo(targetState, force: _isInitializing);
     }
 
     private void StyleNavButton(ModernButton btn, bool active)
     {
-        btn.BackColor = active ? Color.FromArgb(0, 120, 212) : Color.FromArgb(37, 37, 37);
-        btn.HoverBackColor = active ? Color.FromArgb(20, 138, 230) : Color.FromArgb(50, 50, 50);
-        btn.PressedBackColor = active ? Color.FromArgb(0, 100, 180) : Color.FromArgb(44, 44, 44);
         btn.ForeColor = active ? Color.White : Color.FromArgb(185, 185, 185);
         btn.Invalidate();
+    }
+
+    private void AnimateNavPillTo(ModernButton targetBtn, bool immediate = false)
+    {
+        if (_pillTrack == null || targetBtn == null) return;
+
+        if (immediate || !this.IsHandleCreated)
+        {
+            _navPillAnimTimer?.Stop();
+            _pillTrack.HighlightPillRect = new RectangleF(targetBtn.Left, targetBtn.Top, targetBtn.Width, targetBtn.Height);
+            InvalidateNavTrackAndButtons();
+            return;
+        }
+
+        _navPillStartX = _pillTrack.HighlightPillRect.X;
+        _navPillStartW = _pillTrack.HighlightPillRect.Width;
+        _navPillTargetX = targetBtn.Left;
+        _navPillTargetW = targetBtn.Width;
+
+        const double durationMs = 220.0;
+        _navPillWatch.Restart();
+
+        if (_navPillAnimTimer == null)
+        {
+            _navPillAnimTimer = new System.Windows.Forms.Timer { Interval = 15 };
+            _navPillAnimTimer.Tick += (s, e) =>
+            {
+                if (_pillTrack.IsDisposed)
+                {
+                    _navPillAnimTimer.Stop();
+                    return;
+                }
+
+                double t = Math.Clamp(_navPillWatch.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+                // Cubic Ease-Out damper: fast start, smooth deceleration, exact snap at t == 1.0
+                float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+                if (t >= 1.0)
+                {
+                    _pillTrack.HighlightPillRect = new RectangleF(_navPillTargetX, 4f, _navPillTargetW, 30f);
+                    _navPillAnimTimer.Stop();
+                }
+                else
+                {
+                    float curX = _navPillStartX + (_navPillTargetX - _navPillStartX) * ease;
+                    float curW = _navPillStartW + (_navPillTargetW - _navPillStartW) * ease;
+                    _pillTrack.HighlightPillRect = new RectangleF(curX, 4f, curW, 30f);
+                }
+
+                InvalidateNavTrackAndButtons();
+            };
+        }
+
+        _navPillAnimTimer.Start();
+    }
+
+    private void InvalidateNavTrackAndButtons()
+    {
+        _pillTrack?.Invalidate();
+        _navBtnGeneral?.Invalidate();
+        _navBtnGroups?.Invalidate();
+        _navBtnPersonalization?.Invalidate();
     }
 
     private Panel BuildBottomActionBar()
@@ -667,16 +950,16 @@ public class SettingsForm : Form
         _btnAddCycleEntry = CreateModernButton("+ Add Pair", 334, 9, 120, 26, true);
         _btnAddCycleEntry.Click += (s, e) =>
         {
-            _draftSettings.CrossfadeCycleList.Add(new CrossfadeCyclePair
+            if (_isPairListAnimating) return;
+            var newPair = new CrossfadeCyclePair
             {
                 Source1 = "",
                 Color1Hex = "#0E0466",
                 Source2 = "",
-                Color2Hex = "#DA043A"
-            });
-            PopulateCycleListUI();
-            ReflowGeneralPage();
-            MarkDirty();
+                Color2Hex = "#DA043A",
+                ControlMode = "Volume"
+            };
+            AnimateAddPairCard(_cycleSlotsHost, _draftSettings.CrossfadeCycleList, newPair, isCarouselList: true);
         };
         _cycleListCard.Controls.Add(_btnAddCycleEntry);
 
@@ -777,17 +1060,17 @@ public class SettingsForm : Form
         _btnAddStandaloneEntry = CreateModernButton("+ Add Pair", 334, 9, 120, 26, true);
         _btnAddStandaloneEntry.Click += (s, e) =>
         {
-            _draftSettings.StandalonePairs.Add(new CrossfadeCyclePair
+            if (_isPairListAnimating) return;
+            var newPair = new CrossfadeCyclePair
             {
                 Source1 = "",
                 Color1Hex = "#1B3B5A",
                 Source2 = "",
                 Color2Hex = "#4A2040",
-                UseCustomKeybinds = true
-            });
-            PopulateCycleListUI();
-            ReflowGeneralPage();
-            MarkDirty();
+                UseCustomKeybinds = true,
+                ControlMode = "Volume"
+            };
+            AnimateAddPairCard(_standaloneSlotsHost, _draftSettings.StandalonePairs, newPair, isCarouselList: false);
         };
         _standaloneListCard.Controls.Add(_btnAddStandaloneEntry);
 
@@ -830,10 +1113,6 @@ public class SettingsForm : Form
         int y = 0;
         int hostW = Math.Max(442, host.Width);
 
-        // Layout geometry:
-        // Action button ("To Standalone" / "Browse"): 94px
-        // Up / Down arrows: 30px
-        // Delete 'X' button: 32px wide, 57px tall (spans Row 1 & Row 2)
         int comboW = Math.Max(140, hostW - 234);
         int btnActionLeft = 56 + comboW + 6; // Move & Browse buttons (Width = 94)
         int btnArrowLeft = btnActionLeft + 94 + 4; // Up & Down arrows (Width = 30)
@@ -896,8 +1175,15 @@ public class SettingsForm : Form
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Tag = "ModeCombo"
             };
-            cmbMode.Items.AddRange(new object[] { "Crossfade", "Standard Volume" });
-            cmbMode.SelectedItem = pair.IsSingleMode ? "Standard Volume" : "Crossfade";
+            cmbMode.Items.AddRange(new object[] { "Volume", "Balance", "Crossfade" });
+
+            if (pair.IsSingleMode)
+                cmbMode.SelectedItem = "Volume";
+            else if (pair.IsCrossfadeMode)
+                cmbMode.SelectedItem = "Crossfade";
+            else
+                cmbMode.SelectedItem = "Balance";
+
             topBlockPanel.Controls.Add(cmbMode);
 
             CheckBox chkInvert = new CheckBox
@@ -926,13 +1212,13 @@ public class SettingsForm : Form
             btnMoveList.Tag = "MoveListBtn";
             btnMoveList.Click += (s, e) =>
             {
-                targetList.RemoveAt(index);
-                pair.UseCustomKeybinds = isCarouselList;
-                oppositeList.Add(pair);
-                PopulateCycleListUI();
-                ReflowGeneralPage();
-                MarkDirty();
-                PushLivePreviewIfActive();
+                if (_isPairListAnimating) return;
+                AnimateRemovePairCard(host, targetList, index, onComplete: () =>
+                {
+                    pair.UseCustomKeybinds = isCarouselList;
+                    Panel? destHost = isCarouselList ? _standaloneSlotsHost : _cycleSlotsHost;
+                    AnimateAddPairCard(destHost, oppositeList, pair, isCarouselList: !isCarouselList);
+                });
             };
             topBlockPanel.Controls.Add(btnMoveList);
 
@@ -941,13 +1227,8 @@ public class SettingsForm : Form
             btnUp.Enabled = (index > 0);
             btnUp.Click += (s, e) =>
             {
-                if (index <= 0) return;
-                targetList.RemoveAt(index);
-                targetList.Insert(index - 1, pair);
-                PopulateCycleListUI();
-                ReflowGeneralPage();
-                MarkDirty();
-                PushLivePreviewIfActive();
+                if (_isPairListAnimating || index <= 0) return;
+                AnimateSwapPairCards(host, targetList, index, index - 1);
             };
             topBlockPanel.Controls.Add(btnUp);
 
@@ -1014,13 +1295,8 @@ public class SettingsForm : Form
             btnDown.Enabled = (index < targetList.Count - 1);
             btnDown.Click += (s, e) =>
             {
-                if (index >= targetList.Count - 1) return;
-                targetList.RemoveAt(index);
-                targetList.Insert(index + 1, pair);
-                PopulateCycleListUI();
-                ReflowGeneralPage();
-                MarkDirty();
-                PushLivePreviewIfActive();
+                if (_isPairListAnimating || index >= targetList.Count - 1) return;
+                AnimateSwapPairCards(host, targetList, index, index + 1);
             };
             topBlockPanel.Controls.Add(btnDown);
 
@@ -1031,16 +1307,13 @@ public class SettingsForm : Form
             btnDel.Enabled = (totalPairsCount > 1);
             btnDel.Click += (s, e) =>
             {
+                if (_isPairListAnimating) return;
                 if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
                 {
                     MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                targetList.Remove(pair);
-                PopulateCycleListUI();
-                ReflowGeneralPage();
-                MarkDirty();
-                PushLivePreviewIfActive();
+                AnimateRemovePairCard(host, targetList, index);
             };
             topBlockPanel.Controls.Add(btnDel);
 
@@ -1178,14 +1451,36 @@ public class SettingsForm : Form
                 pair.UseCustomKeybinds = false;
             }
 
+            // Per-Card Finite State Machine for ControlModeState (Volume / Balance / Crossfade)
+            var modeFsm = new StateMachine<ControlModeState>(pair.ModeState);
+            modeFsm.ConfigureState(ControlModeState.Volume, onEnter: () =>
+            {
+                pair.ModeState = ControlModeState.Volume;
+                lblS1.Text = "S:";
+                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, true, isCarouselList);
+            });
+            modeFsm.ConfigureState(ControlModeState.Balance, onEnter: () =>
+            {
+                pair.ModeState = ControlModeState.Balance;
+                lblS1.Text = "L:";
+                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
+            });
+            modeFsm.ConfigureState(ControlModeState.Crossfade, onEnter: () =>
+            {
+                pair.ModeState = ControlModeState.Crossfade;
+                lblS1.Text = "L:";
+                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
+            });
+
             cmbMode.SelectedIndexChanged += (s, e) =>
             {
                 if (_isInitializing) return;
-                pair.ControlMode = cmbMode.SelectedItem?.ToString() ?? "Crossfade";
-                lblS1.Text = pair.IsSingleMode ? "S:" : "L:";
-                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, pair.IsSingleMode, isCarouselList);
-                MarkDirty();
-                PushLivePreviewIfActive();
+                ControlModeState nextMode = ControlModeStateMachine.ParseState(cmbMode.SelectedItem?.ToString());
+                if (modeFsm.TransitionTo(nextMode))
+                {
+                    MarkDirty();
+                    PushLivePreviewIfActive();
+                }
             };
 
             pairCard.Controls.Add(row2Panel);
@@ -1203,119 +1498,169 @@ public class SettingsForm : Form
     private void ResizeExistingPairCards(Panel? host)
     {
         if (host == null) return;
-        int hostW = Math.Max(442, host.Width);
-        int comboW = Math.Max(140, hostW - 234);
-        int btnActionLeft = 56 + comboW + 6;
-        int btnArrowLeft = btnActionLeft + 94 + 4;
-        int btnDelLeft = btnArrowLeft + 30 + 4;
 
-        int invertW = 62;
-        int modeComboW = Math.Max(95, comboW - invertW - 6);
+        host.SuspendLayout();
 
-        int rowLeft = 6;
-        int rowRight = btnDelLeft + 32;
-        int totalRowW = rowRight - rowLeft;
-        int colGap = 8;
-        int colW = (totalRowW - (colGap * 2)) / 3;
-
-        foreach (Control ctrl in host.Controls)
+        try
         {
-            if (ctrl is not Win11CardPanel pairCard) continue;
-            pairCard.Width = hostW;
+            int hostW = Math.Max(442, host.Width);
+            int comboW = Math.Max(140, hostW - 234);
+            int btnActionLeft = 56 + comboW + 6;
+            int btnArrowLeft = btnActionLeft + 94 + 4;
+            int btnDelLeft = btnArrowLeft + 30 + 4;
 
-            foreach (Control subPanel in pairCard.Controls)
+            int invertW = 62;
+            int modeComboW = Math.Max(95, comboW - invertW - 6);
+
+            int rowLeft = 6;
+            int rowRight = btnDelLeft + 32;
+            int totalRowW = rowRight - rowLeft;
+            int colGap = 8;
+            int colW = (totalRowW - (colGap * 2)) / 3;
+
+            foreach (Control ctrl in host.Controls)
             {
-                if (subPanel is not Panel p) continue;
-                p.Width = hostW - 4;
+                if (ctrl is not Win11CardPanel pairCard)
+                    continue;
 
-                foreach (Control child in p.Controls)
+                pairCard.SuspendLayout();
+
+                try
                 {
-                    if (child.Tag is not string tag) continue;
-                    switch (tag)
+                    pairCard.Width = hostW;
+
+                    foreach (Control subPanel in pairCard.Controls)
                     {
-                        case "Source1Combo":
-                        case "Source2Combo":
-                        case "PairMuteCombo":
-                            child.Width = comboW;
-                            break;
-                        case "ModeCombo":
-                            child.Width = modeComboW;
-                            break;
-                        case "InvertChk":
-                            child.Left = 56 + modeComboW + 6;
-                            break;
-                        case "MoveListBtn":
-                        case "Browse1Btn":
-                        case "Browse2Btn":
-                            child.Left = btnActionLeft;
-                            break;
-                        case "UpBtn":
-                        case "DownBtn":
-                            child.Left = btnArrowLeft;
-                            break;
-                        case "DeleteBtn":
-                            child.Left = btnDelLeft;
-                            break;
-                        case "KeyCol_0":
-                            child.Left = rowLeft;
-                            child.Width = colW;
-                            break;
-                        case "KeyCol_1":
-                            child.Left = rowLeft + colW + colGap;
-                            child.Width = colW;
-                            break;
-                        case "KeyCol_2":
-                            child.Left = rowLeft + (colW + colGap) * 2;
-                            child.Width = totalRowW - (colW * 2) - (colGap * 2);
-                            break;
+                        if (subPanel is not Panel p)
+                            continue;
+
+                        p.SuspendLayout();
+
+                        try
+                        {
+                            p.Width = hostW - 4;
+
+                            foreach (Control child in p.Controls)
+                            {
+                                if (child.Tag is not string tag)
+                                    continue;
+
+                                switch (tag)
+                                {
+                                    case "Source1Combo":
+                                    case "Source2Combo":
+                                    case "PairMuteCombo":
+                                        child.Width = comboW;
+                                        break;
+
+                                    case "ModeCombo":
+                                        child.Width = modeComboW;
+                                        break;
+
+                                    case "InvertChk":
+                                        child.Left = 56 + modeComboW + 6;
+                                        break;
+
+                                    case "MoveListBtn":
+                                    case "Browse1Btn":
+                                    case "Browse2Btn":
+                                        child.Left = btnActionLeft;
+                                        break;
+
+                                    case "UpBtn":
+                                    case "DownBtn":
+                                        child.Left = btnArrowLeft;
+                                        break;
+
+                                    case "DeleteBtn":
+                                        child.Left = btnDelLeft;
+                                        break;
+
+                                    case "KeyCol_0":
+                                        child.Left = rowLeft;
+                                        child.Width = colW;
+                                        break;
+
+                                    case "KeyCol_1":
+                                        child.Left = rowLeft + colW + colGap;
+                                        child.Width = colW;
+                                        break;
+
+                                    case "KeyCol_2":
+                                        child.Left = rowLeft + (colW + colGap) * 2;
+                                        child.Width =
+                                            totalRowW - (colW * 2) - (colGap * 2);
+                                        break;
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            p.ResumeLayout(false);
+                        }
                     }
                 }
+                finally
+                {
+                    pairCard.ResumeLayout(false);
+                }
             }
+        }
+        finally
+        {
+            host.ResumeLayout(true);
         }
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        this.BeginInvoke(new Action(() =>
+
+        BeginInvoke(new Action(() =>
         {
             HandleWindowResize();
-            _pageGeneral.RecalculateScroll();
-            _pageGroups.RecalculateScroll();
-            _pagePersonalization.RecalculateScroll();
         }));
     }
 
     private void AnimatePairCardModeChange(
-    Win11CardPanel pairCard,
-    Panel topBlockPanel,
-    Panel row2Panel,
-    Control? bottomSection,
-    bool toSingleMode,
-    bool isCarouselList)
+        Win11CardPanel pairCard,
+        Panel topBlockPanel,
+        Panel row2Panel,
+        Control? bottomSection,
+        bool toSingleMode,
+        bool isCarouselList)
     {
         topBlockPanel.BringToFront(); // Ensures row2Panel slides neatly BEHIND topBlockPanel
 
+        int startCardH = pairCard.Height;
         int targetCardH = isCarouselList
             ? (toSingleMode ? 68 : CarouselPairCardHeight)
             : (toSingleMode ? 144 : StandalonePairCardHeight);
 
+        int startRow2Top = row2Panel.Top;
         int targetRow2Top = toSingleMode ? 34 : 66;
+
+        int startBottomTop = bottomSection?.Top ?? 0;
         int targetBottomTop = toSingleMode ? 66 : 98;
 
         row2Panel.Visible = true;
 
+        const double durationMs = 220.0;
+        Stopwatch sw = Stopwatch.StartNew();
         var animTimer = new System.Windows.Forms.Timer { Interval = 15 };
         animTimer.Tick += (s, e) =>
         {
-            if (pairCard.IsDisposed) { animTimer.Stop(); animTimer.Dispose(); return; }
+            if (pairCard.IsDisposed)
+            {
+                animTimer.Stop();
+                animTimer.Dispose();
+                return;
+            }
 
-            pairCard.Height += (int)Math.Round((targetCardH - pairCard.Height) * 0.35f);
-            row2Panel.Top += (int)Math.Round((targetRow2Top - row2Panel.Top) * 0.35f);
-            if (bottomSection != null)
-                bottomSection.Top += (int)Math.Round((targetBottomTop - bottomSection.Top) * 0.35f);
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
 
-            if (Math.Abs(pairCard.Height - targetCardH) <= 1 && Math.Abs(row2Panel.Top - targetRow2Top) <= 1)
+            if (t >= 1.0)
             {
                 pairCard.Height = targetCardH;
                 row2Panel.Top = targetRow2Top;
@@ -1323,6 +1668,13 @@ public class SettingsForm : Form
                 row2Panel.Visible = !toSingleMode;
                 animTimer.Stop();
                 animTimer.Dispose();
+            }
+            else
+            {
+                pairCard.Height = startCardH + (int)Math.Round((targetCardH - startCardH) * ease);
+                row2Panel.Top = startRow2Top + (int)Math.Round((targetRow2Top - startRow2Top) * ease);
+                if (bottomSection != null)
+                    bottomSection.Top = startBottomTop + (int)Math.Round((targetBottomTop - startBottomTop) * ease);
             }
 
             int curY = 0;
@@ -1338,6 +1690,231 @@ public class SettingsForm : Form
             ReflowGeneralPage();
         };
         animTimer.Start();
+    }
+
+    private void AnimateAddPairCard(
+        Panel? host,
+        List<CrossfadeCyclePair> targetList,
+        CrossfadeCyclePair newPair,
+        bool isCarouselList)
+    {
+        if (host == null) return;
+
+        targetList.Add(newPair);
+        PopulateCycleListUI();
+        MarkDirty();
+        PushLivePreviewIfActive();
+
+        if (host.Controls.Count == 0)
+        {
+            ReflowGeneralPage();
+            return;
+        }
+
+        int lastIdx = host.Controls.Count - 1;
+        Control newCard = host.Controls[lastIdx];
+        Control? prevCard = lastIdx > 0 ? host.Controls[lastIdx - 1] : null;
+
+        int finalTop = newCard.Top;
+        int finalCardH = newCard.Height;
+        int startTop = prevCard != null ? prevCard.Top : -finalCardH;
+        int startHostH = Math.Max(0, finalTop);
+        int finalHostH = finalTop + finalCardH + 6;
+
+        // Place the new card behind the card above it so it slides out from underneath
+        if (prevCard != null)
+        {
+            prevCard.BringToFront();
+        }
+        newCard.Top = startTop;
+        host.Height = startHostH;
+        ReflowGeneralPage();
+
+        _isPairListAnimating = true;
+        const double durationMs = 240.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (newCard.IsDisposed || host.IsDisposed)
+            {
+                _isPairListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+
+            if (t >= 1.0)
+            {
+                newCard.Top = finalTop;
+                host.Height = finalHostH;
+                _isPairListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+            }
+            else
+            {
+                newCard.Top = startTop + (int)Math.Round((finalTop - startTop) * ease);
+                host.Height = startHostH + (int)Math.Round((finalHostH - startHostH) * ease);
+            }
+
+            ReflowGeneralPage();
+        };
+        timer.Start();
+    }
+
+    private void AnimateRemovePairCard(
+        Panel? host,
+        List<CrossfadeCyclePair> targetList,
+        int removeIndex,
+        Action? onComplete = null)
+    {
+        if (host == null || removeIndex < 0 || removeIndex >= host.Controls.Count || removeIndex >= targetList.Count)
+            return;
+
+        Control removingCard = host.Controls[removeIndex];
+        Control? cardAbove = removeIndex > 0 ? host.Controls[removeIndex - 1] : null;
+
+        // Ensure the card above stays visually on top while the removed card slides up behind it
+        if (cardAbove != null)
+        {
+            cardAbove.BringToFront();
+        }
+        else
+        {
+            removingCard.SendToBack();
+        }
+
+        int shiftDelta = removingCard.Height + 6;
+        int startRemoveTop = removingCard.Top;
+        int targetRemoveTop = cardAbove != null ? cardAbove.Top : -removingCard.Height;
+
+        List<(Control ctrl, int startY, int targetY)> trailingCards = new();
+        for (int i = removeIndex + 1; i < host.Controls.Count; i++)
+        {
+            Control c = host.Controls[i];
+            trailingCards.Add((c, c.Top, c.Top - shiftDelta));
+        }
+
+        int startHostH = host.Height;
+        int targetHostH = Math.Max(0, startHostH - shiftDelta);
+
+        _isPairListAnimating = true;
+        const double durationMs = 230.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (host.IsDisposed)
+            {
+                _isPairListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+
+            if (t >= 1.0)
+            {
+                timer.Stop();
+                timer.Dispose();
+
+                targetList.RemoveAt(removeIndex);
+                _isPairListAnimating = false;
+                PopulateCycleListUI();
+                ReflowGeneralPage();
+                MarkDirty();
+                PushLivePreviewIfActive();
+                onComplete?.Invoke();
+                return;
+            }
+
+            removingCard.Top = startRemoveTop + (int)Math.Round((targetRemoveTop - startRemoveTop) * ease);
+            foreach (var item in trailingCards)
+            {
+                item.ctrl.Top = item.startY + (int)Math.Round((item.targetY - item.startY) * ease);
+            }
+            host.Height = startHostH + (int)Math.Round((targetHostH - startHostH) * ease);
+            ReflowGeneralPage();
+        };
+        timer.Start();
+    }
+
+    private void AnimateSwapPairCards(
+        Panel? host,
+        List<CrossfadeCyclePair> targetList,
+        int indexA,
+        int indexB)
+    {
+        if (host == null || indexA < 0 || indexB < 0 ||
+            indexA >= host.Controls.Count || indexB >= host.Controls.Count ||
+            indexA == indexB)
+        {
+            return;
+        }
+
+        int upperIdx = Math.Min(indexA, indexB);
+        int lowerIdx = Math.Max(indexA, indexB);
+
+        Control upperCard = host.Controls[upperIdx];
+        Control lowerCard = host.Controls[lowerIdx];
+        Control initiatedCard = host.Controls[indexA];
+        initiatedCard.BringToFront();
+
+        int upperStartTop = upperCard.Top;
+        int lowerStartTop = lowerCard.Top;
+
+        // Calculate exact final Y positions (accounting for cards that may have different heights)
+        int upperTargetTop = upperStartTop + lowerCard.Height + 6;
+        int lowerTargetTop = upperStartTop;
+
+        _isPairListAnimating = true;
+        const double durationMs = 240.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (host.IsDisposed || upperCard.IsDisposed || lowerCard.IsDisposed)
+            {
+                _isPairListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+
+            if (t >= 1.0)
+            {
+                // Snap to exact final positions and commit the swap in the data model
+                upperCard.Top = upperTargetTop;
+                lowerCard.Top = lowerTargetTop;
+                timer.Stop();
+                timer.Dispose();
+
+                (targetList[indexA], targetList[indexB]) = (targetList[indexB], targetList[indexA]);
+                _isPairListAnimating = false;
+                PopulateCycleListUI();
+                ReflowGeneralPage();
+                MarkDirty();
+                PushLivePreviewIfActive();
+                return;
+            }
+
+            upperCard.Top = upperStartTop + (int)Math.Round((upperTargetTop - upperStartTop) * ease);
+            lowerCard.Top = lowerStartTop + (int)Math.Round((lowerTargetTop - lowerStartTop) * ease);
+            host.Invalidate();
+        };
+        timer.Start();
     }
 
     private void AddSideBySideKeybindColumn(Control parent, string title, int left, int width, int topY, int initialKey, Action<int> onCommit, int colIndex = 0)
