@@ -95,16 +95,50 @@ public class TrayApplicationContext : ApplicationContext
 
         _contextMenu.Items.Add(new ToolStripSeparator());
 
-        var validPairs = _activeSettings.CrossfadeCycleList
-            .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && !string.IsNullOrWhiteSpace(p.Source2))
+        var validCarouselPairs = _activeSettings.CrossfadeCycleList
+            .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)))
             .ToList();
 
-        if (validPairs.Count > 0)
+        var validStandalonePairs = _activeSettings.StandalonePairs
+            .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)))
+            .ToList();
+
+        if (validCarouselPairs.Count > 0)
         {
-            var header = new ToolStripMenuItem("Crossfade Source Pairs") { Enabled = false };
+            var header = new ToolStripMenuItem("Carousel Pairs") { Enabled = false };
             _contextMenu.Items.Add(header);
 
-            foreach (var pair in validPairs)
+            foreach (var pair in validCarouselPairs)
+            {
+                string label = pair.IsSingleMode ? $"{pair.Source1} (Volume)" : $"{pair.Source1}  ⇄  {pair.Source2}";
+                var item = new ToolStripMenuItem(label)
+                {
+                    Checked = _activeSettings.Source1.Equals(pair.Source1, StringComparison.OrdinalIgnoreCase) &&
+                            (pair.IsSingleMode || _activeSettings.Source2.Equals(pair.Source2, StringComparison.OrdinalIgnoreCase))
+                };
+                item.Click += (s, e) =>
+                {
+                    var updated = _activeSettings.Clone();
+                    updated.Source1 = pair.Source1;
+                    updated.Source1Color = pair.Color1Hex;
+                    updated.Source2 = pair.IsSingleMode ? "" : pair.Source2;
+                    updated.Source2Color = pair.Color2Hex;
+                    updated.ActiveControlMode = pair.ControlMode;
+                    SaveSettings(updated);
+                };
+                _contextMenu.Items.Add(item);
+            }
+        }
+
+        if (validStandalonePairs.Count > 0)
+        {
+            if (validCarouselPairs.Count > 0)
+                _contextMenu.Items.Add(new ToolStripSeparator());
+
+            var header = new ToolStripMenuItem("Standalone Pairs") { Enabled = false };
+            _contextMenu.Items.Add(header);
+
+            foreach (var pair in validStandalonePairs)
             {
                 var item = new ToolStripMenuItem($"{pair.Source1}  ⇄  {pair.Source2}")
                 {
@@ -123,9 +157,10 @@ public class TrayApplicationContext : ApplicationContext
                 _contextMenu.Items.Add(item);
             }
         }
-        else
+
+        if (validCarouselPairs.Count == 0 && validStandalonePairs.Count == 0)
         {
-            var emptyItem = new ToolStripMenuItem("No Crossfade Pairs Configured") { Enabled = false };
+            var emptyItem = new ToolStripMenuItem("No Source Pairs Configured") { Enabled = false };
             _contextMenu.Items.Add(emptyItem);
         }
 
@@ -146,12 +181,13 @@ public class TrayApplicationContext : ApplicationContext
                 {
                     loaded.CycleNextKey = loaded.QuickSwapKey;
                 }
-                if (loaded.CrossfadeCycleList.Count > 0)
+                var firstPair = loaded.CrossfadeCycleList.FirstOrDefault() ?? loaded.StandalonePairs.FirstOrDefault();
+                if (firstPair != null)
                 {
-                    loaded.Source1 = loaded.CrossfadeCycleList[0].Source1;
-                    loaded.Source1Color = loaded.CrossfadeCycleList[0].Color1Hex;
-                    loaded.Source2 = loaded.CrossfadeCycleList[0].Source2;
-                    loaded.Source2Color = loaded.CrossfadeCycleList[0].Color2Hex;
+                    loaded.Source1 = firstPair.Source1;
+                    loaded.Source1Color = firstPair.Color1Hex;
+                    loaded.Source2 = firstPair.Source2;
+                    loaded.Source2Color = firstPair.Color2Hex;
                 }
                 loaded.RecordProgramHistory(loaded.Source1);
                 loaded.RecordProgramHistory(loaded.Source2);

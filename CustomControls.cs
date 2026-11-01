@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
-// Custom Dark-Mode Renderer for System Tray ContextMenuStrip
 public class DarkContextMenuColorTable : ProfessionalColorTable
 {
     public override Color ToolStripDropDownBackground => Color.FromArgb(32, 32, 32);
@@ -143,9 +142,19 @@ public class ModernButton : Button
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
         Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(39, 39, 39);
-        if (parentBg == Color.Transparent && this.Parent is Win11CardPanel card)
+        if (parentBg == Color.Transparent)
         {
-            parentBg = card.FillColor;
+            Control? p = this.Parent;
+            while (p != null && p.BackColor == Color.Transparent)
+            {
+                if (p is Win11CardPanel card)
+                {
+                    parentBg = card.FillColor;
+                    break;
+                }
+                p = p.Parent;
+            }
+            if (parentBg == Color.Transparent) parentBg = Color.FromArgb(39, 39, 39);
         }
         g.Clear(parentBg);
 
@@ -249,17 +258,152 @@ public class RoundedColorSwatch : Panel
     }
 }
 
-// Custom Dark-Mode Scrollable Container
+// Interactive Single-Click Rounded Keybind Control (Click to bind, Esc to clear)
+public class KeybindBox : Control
+{
+    private bool _isHovered = false;
+    private bool _isRecording = false;
+    private int _binding = 0;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CornerRadius { get; set; } = 6;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int Binding
+    {
+        get => _binding;
+        set
+        {
+            _binding = value;
+            if (!_isRecording)
+            {
+                this.Text = KeybindHelper.FormatKeybind(_binding);
+            }
+            Invalidate();
+        }
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool IsRecording
+    {
+        get => _isRecording;
+        set
+        {
+            _isRecording = value;
+            if (!_isRecording)
+            {
+                this.Text = KeybindHelper.FormatKeybind(_binding);
+            }
+            Invalidate();
+        }
+    }
+
+    public KeybindBox()
+    {
+        this.SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw |
+            ControlStyles.Selectable,
+            true);
+        this.Cursor = Cursors.Hand;
+        this.Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold);
+        this.ForeColor = Color.White;
+        this.BackColor = Color.FromArgb(38, 38, 38);
+        this.Height = 25;
+        this.Text = "None";
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        base.OnMouseEnter(e);
+        _isHovered = true;
+        Invalidate();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _isHovered = false;
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(39, 39, 39);
+        if (parentBg == Color.Transparent)
+        {
+            Control? p = this.Parent;
+            while (p != null && p.BackColor == Color.Transparent)
+            {
+                if (p is Win11CardPanel card)
+                {
+                    parentBg = card.FillColor;
+                    break;
+                }
+                p = p.Parent;
+            }
+            if (parentBg == Color.Transparent) parentBg = Color.FromArgb(39, 39, 39);
+        }
+        g.Clear(parentBg);
+
+        Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+
+        Color fill = _isRecording
+            ? Color.FromArgb(205, 95, 0)
+            : (_isHovered ? Color.FromArgb(56, 56, 56) : this.BackColor);
+
+        Color border = _isRecording
+            ? Color.FromArgb(255, 145, 45)
+            : (_isHovered ? Color.FromArgb(110, 110, 110) : Color.FromArgb(72, 72, 72));
+
+        using GraphicsPath path = Win11CardPanel.CreateRoundRect(rect, CornerRadius);
+        using SolidBrush brush = new SolidBrush(fill);
+        using Pen pen = new Pen(border, 1f);
+
+        g.FillPath(brush, path);
+        g.DrawPath(pen, path);
+
+        Color textCol = (!_isRecording && _binding == 0)
+            ? Color.FromArgb(145, 145, 145)
+            : Color.White;
+
+        TextRenderer.DrawText(
+            g,
+            this.Text,
+            this.Font,
+            this.ClientRectangle,
+            textCol,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+}
+
+// In CustomControls.cs -> Replace DarkScrollPanel with this updated version
 public class DarkScrollPanel : Panel
 {
+    private readonly Panel _viewport;
     private readonly Panel _content;
-    private int _scrollOffset = 0;
+    private int _scrollOffsetY = 0;
+    private int _scrollOffsetX = 0;
     private int _contentHeight = 0;
-    private bool _draggingThumb = false;
-    private bool _hoveringThumb = false;
-    private int _dragStartY = 0;
+    private int _contentWidth = 0;
+
+    private bool _draggingThumbY = false;
+    private bool _draggingThumbX = false;
+    private bool _hoveringThumbY = false;
+    private bool _hoveringThumbX = false;
+    private int _dragStartMouse = 0;
     private int _dragStartScroll = 0;
-    private const int ScrollBarWidth = 8;
+    private const int ScrollBarSize = 10;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int MinContentWidth { get; set; } = 496;
 
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
@@ -267,22 +411,34 @@ public class DarkScrollPanel : Panel
 
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int ContentViewportWidth => Math.Max(50, this.ClientSize.Width - ScrollBarWidth - 4);
+    public int ContentViewportWidth => Math.Max(MinContentWidth, this.ClientSize.Width - ScrollBarSize - 4);
 
     public DarkScrollPanel()
     {
-        this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        this.SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                      ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         this.BackColor = Color.FromArgb(28, 28, 28);
+
+        _viewport = new Panel
+        {
+            Left = 0,
+            Top = 0,
+            Width = MinContentWidth,
+            Height = 10,
+            BackColor = Color.FromArgb(28, 28, 28)
+        };
 
         _content = new Panel
         {
             Left = 0,
             Top = 0,
-            Width = this.ClientSize.Width - ScrollBarWidth - 2,
+            Width = MinContentWidth,
             Height = 10,
             BackColor = Color.FromArgb(28, 28, 28)
         };
-        this.Controls.Add(_content);
+
+        _viewport.Controls.Add(_content);
+        this.Controls.Add(_viewport);
     }
 
     public void RecalculateScroll()
@@ -290,15 +446,26 @@ public class DarkScrollPanel : Panel
         int maxBottom = 0;
         foreach (Control c in _content.Controls)
         {
-            if (c.Visible && c.Bottom > maxBottom)
-            {
-                maxBottom = c.Bottom;
-            }
+            if (c.Height > 0 && c.Bottom > maxBottom) maxBottom = c.Bottom;
         }
 
-        _contentHeight = maxBottom + 10;
-        _content.Width = ContentViewportWidth;
-        _content.Height = Math.Max(this.ClientSize.Height, _contentHeight);
+        // Horizontal scrollbar ONLY appears when the window is narrower than MinContentWidth (496)
+        bool needsH = this.ClientSize.Width < MinContentWidth;
+        int availH = Math.Max(1, this.ClientSize.Height - (needsH ? ScrollBarSize : 0));
+
+        // Vertical scrollbar ONLY appears when the cards + bottom margin exceed the available window height
+        int rawContentH = maxBottom + 10;
+        bool needsV = rawContentH > availH;
+        int availW = Math.Max(1, this.ClientSize.Width - (needsV ? ScrollBarSize : 0));
+
+        _viewport.Width = availW;
+        _viewport.Height = availH;
+
+        _contentWidth = needsH ? MinContentWidth : availW;
+        _contentHeight = needsV ? rawContentH : availH;
+
+        _content.Width = _contentWidth;
+        _content.Height = _contentHeight;
 
         ClampAndApplyScroll();
         Invalidate();
@@ -306,86 +473,108 @@ public class DarkScrollPanel : Panel
 
     private void ClampAndApplyScroll()
     {
-        int maxScroll = Math.Max(0, _contentHeight - this.ClientSize.Height);
-        _scrollOffset = Math.Clamp(_scrollOffset, 0, maxScroll);
-        _content.Top = -_scrollOffset;
+        int maxScrollY = Math.Max(0, _contentHeight - Math.Max(1, _viewport.Height));
+        int maxScrollX = Math.Max(0, _contentWidth - Math.Max(1, _viewport.Width));
+
+        _scrollOffsetY = Math.Clamp(_scrollOffsetY, 0, maxScrollY);
+        _scrollOffsetX = Math.Clamp(_scrollOffsetX, 0, maxScrollX);
+
+        _content.Top = -_scrollOffsetY;
+        _content.Left = -_scrollOffsetX;
     }
 
     protected override void OnResize(EventArgs eventargs)
     {
         base.OnResize(eventargs);
-        if (_content != null)
-        {
-            RecalculateScroll();
-        }
+        if (_content != null) RecalculateScroll();
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
-        if (_contentHeight <= this.ClientSize.Height) return;
-
-        int step = 36;
-        _scrollOffset -= Math.Sign(e.Delta) * step;
+        if (ModifierKeys == Keys.Shift && _contentWidth > _viewport.Width)
+        {
+            _scrollOffsetX -= Math.Sign(e.Delta) * 36;
+        }
+        else if (_contentHeight > _viewport.Height)
+        {
+            _scrollOffsetY -= Math.Sign(e.Delta) * 36;
+        }
         ClampAndApplyScroll();
         Invalidate();
     }
 
-    private Rectangle GetThumbRect()
+    private Rectangle GetVerticalThumbRect()
     {
-        if (_contentHeight <= this.ClientSize.Height || this.ClientSize.Height <= 0)
-            return Rectangle.Empty;
+        if (_contentHeight <= _viewport.Height || _viewport.Height <= 0) return Rectangle.Empty;
+        int trackH = _viewport.Height - 8;
+        int thumbH = Math.Max(28, (int)((float)_viewport.Height / _contentHeight * trackH));
+        int maxScroll = _contentHeight - _viewport.Height;
+        int thumbTop = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetY / maxScroll * (trackH - thumbH)) : 0);
+        return new Rectangle(this.ClientSize.Width - ScrollBarSize + 2, thumbTop, 6, thumbH);
+    }
 
-        int trackHeight = this.ClientSize.Height - 8;
-        int thumbHeight = Math.Max(28, (int)((float)this.ClientSize.Height / _contentHeight * trackHeight));
-        int maxScroll = _contentHeight - this.ClientSize.Height;
-        int maxThumbTop = trackHeight - thumbHeight;
-        int thumbTop = 4 + (maxScroll > 0 ? (int)((float)_scrollOffset / maxScroll * maxThumbTop) : 0);
-
-        return new Rectangle(this.ClientSize.Width - ScrollBarWidth - 2, thumbTop, 6, thumbHeight);
+    private Rectangle GetHorizontalThumbRect()
+    {
+        if (_contentWidth <= _viewport.Width || _viewport.Width <= 0) return Rectangle.Empty;
+        int trackW = _viewport.Width - 8;
+        int thumbW = Math.Max(28, (int)((float)_viewport.Width / _contentWidth * trackW));
+        int maxScroll = _contentWidth - _viewport.Width;
+        int thumbLeft = 4 + (maxScroll > 0 ? (int)((float)_scrollOffsetX / maxScroll * (trackW - thumbW)) : 0);
+        return new Rectangle(thumbLeft, this.ClientSize.Height - ScrollBarSize + 2, thumbW, 6);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        Rectangle thumb = GetThumbRect();
-        if (!thumb.IsEmpty && thumb.Contains(e.Location))
+        Rectangle vThumb = GetVerticalThumbRect();
+        Rectangle hThumb = GetHorizontalThumbRect();
+
+        if (!vThumb.IsEmpty && vThumb.Contains(e.Location))
         {
-            _draggingThumb = true;
-            _dragStartY = e.Y;
-            _dragStartScroll = _scrollOffset;
+            _draggingThumbY = true;
+            _dragStartMouse = e.Y;
+            _dragStartScroll = _scrollOffsetY;
             this.Capture = true;
         }
-        else if (!thumb.IsEmpty && e.X >= this.ClientSize.Width - ScrollBarWidth - 6)
+        else if (!hThumb.IsEmpty && hThumb.Contains(e.Location))
         {
-            _scrollOffset += (e.Y < thumb.Top) ? -120 : 120;
-            ClampAndApplyScroll();
-            Invalidate();
+            _draggingThumbX = true;
+            _dragStartMouse = e.X;
+            _dragStartScroll = _scrollOffsetX;
+            this.Capture = true;
         }
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (_draggingThumb)
+        if (_draggingThumbY)
         {
-            int trackHeight = this.ClientSize.Height - 8;
-            Rectangle thumb = GetThumbRect();
-            int maxThumbTravel = Math.Max(1, trackHeight - thumb.Height);
-            int maxScroll = Math.Max(0, _contentHeight - this.ClientSize.Height);
-
-            int deltaY = e.Y - _dragStartY;
-            _scrollOffset = _dragStartScroll + (int)((float)deltaY / maxThumbTravel * maxScroll);
+            Rectangle vThumb = GetVerticalThumbRect();
+            int maxTravel = Math.Max(1, (_viewport.Height - 8) - vThumb.Height);
+            int maxScroll = Math.Max(0, _contentHeight - _viewport.Height);
+            _scrollOffsetY = _dragStartScroll + (int)((float)(e.Y - _dragStartMouse) / maxTravel * maxScroll);
+            ClampAndApplyScroll();
+            Invalidate();
+        }
+        else if (_draggingThumbX)
+        {
+            Rectangle hThumb = GetHorizontalThumbRect();
+            int maxTravel = Math.Max(1, (_viewport.Width - 8) - hThumb.Width);
+            int maxScroll = Math.Max(0, _contentWidth - _viewport.Width);
+            _scrollOffsetX = _dragStartScroll + (int)((float)(e.X - _dragStartMouse) / maxTravel * maxScroll);
             ClampAndApplyScroll();
             Invalidate();
         }
         else
         {
-            Rectangle thumb = GetThumbRect();
-            bool over = !thumb.IsEmpty && thumb.Contains(e.Location);
-            if (over != _hoveringThumb)
+            bool overY = GetVerticalThumbRect().Contains(e.Location);
+            bool overX = GetHorizontalThumbRect().Contains(e.Location);
+            if (overY != _hoveringThumbY || overX != _hoveringThumbX)
             {
-                _hoveringThumb = over;
+                _hoveringThumbY = overY;
+                _hoveringThumbX = overX;
                 Invalidate();
             }
         }
@@ -394,9 +583,9 @@ public class DarkScrollPanel : Panel
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        if (_draggingThumb)
+        if (_draggingThumbY || _draggingThumbX)
         {
-            _draggingThumb = false;
+            _draggingThumbY = _draggingThumbX = false;
             this.Capture = false;
             Invalidate();
         }
@@ -405,16 +594,23 @@ public class DarkScrollPanel : Panel
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        Rectangle thumb = GetThumbRect();
-        if (!thumb.IsEmpty)
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Color thumbColor = (_draggingThumb || _hoveringThumb)
-                ? Color.FromArgb(135, 135, 135)
-                : Color.FromArgb(85, 85, 85);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-            using GraphicsPath path = Win11CardPanel.CreateRoundRect(thumb, 3);
-            using SolidBrush brush = new SolidBrush(thumbColor);
+        Rectangle vThumb = GetVerticalThumbRect();
+        if (!vThumb.IsEmpty)
+        {
+            Color col = (_draggingThumbY || _hoveringThumbY) ? Color.FromArgb(145, 145, 145) : Color.FromArgb(90, 90, 90);
+            using GraphicsPath path = Win11CardPanel.CreateRoundRect(vThumb, 3);
+            using SolidBrush brush = new SolidBrush(col);
+            e.Graphics.FillPath(brush, path);
+        }
+
+        Rectangle hThumb = GetHorizontalThumbRect();
+        if (!hThumb.IsEmpty)
+        {
+            Color col = (_draggingThumbX || _hoveringThumbX) ? Color.FromArgb(145, 145, 145) : Color.FromArgb(90, 90, 90);
+            using GraphicsPath path = Win11CardPanel.CreateRoundRect(hThumb, 3);
+            using SolidBrush brush = new SolidBrush(col);
             e.Graphics.FillPath(brush, path);
         }
     }
@@ -444,7 +640,7 @@ public class Win11CardPanel : Panel
         int maxBottom = 0;
         foreach (Control c in this.Controls)
         {
-            if (c.Visible && c.Bottom > maxBottom)
+            if (c.Height > 0 && c.Bottom > maxBottom)
             {
                 maxBottom = c.Bottom;
             }
@@ -504,11 +700,14 @@ public class Win11CardPanel : Panel
     }
 }
 
-// Custom Borderless Dark-Mode ComboBox (Mouse-wheel events pass through to parent scroll panel)
 public class ModernComboBox : ComboBox
 {
+    private const int WM_SIZE = 0x0005;
+    private const int WM_SETFOCUS = 0x0007;
     private const int WM_PAINT = 0x000F;
+    private const int WM_WINDOWPOSCHANGED = 0x0047;
     private const int WM_MOUSEWHEEL = 0x020A;
+    private const int CB_SETEDITSEL = 0x0142;
 
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -529,13 +728,39 @@ public class ModernComboBox : ComboBox
         this.Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
     }
 
+    private void ClearNativeEditSelection()
+    {
+        if (!this.IsDisposed && this.IsHandleCreated && this.DropDownStyle == ComboBoxStyle.DropDown && !this.Focused)
+        {
+            SendMessage(this.Handle, CB_SETEDITSEL, IntPtr.Zero, (IntPtr)(-1));
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        this.BeginInvoke(new Action(ClearNativeEditSelection));
+    }
+
+    protected override void OnSelectedIndexChanged(EventArgs e)
+    {
+        base.OnSelectedIndexChanged(e);
+        if (!this.Focused)
+        {
+            this.BeginInvoke(new Action(ClearNativeEditSelection));
+        }
+    }
+
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         if (e.Index < 0 || e.Index >= Items.Count) return;
 
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        bool isEditBox = (e.State & DrawItemState.ComboBoxEdit) == DrawItemState.ComboBoxEdit;
         bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-        Color bg = isSelected ? Color.FromArgb(0, 103, 192) : Color.FromArgb(45, 45, 45);
+
+        // Never paint the blue selection background inside the closed ComboBox display area
+        Color bg = (isSelected && !isEditBox) ? Color.FromArgb(0, 103, 192) : this.BackColor;
 
         using (SolidBrush bgBrush = new SolidBrush(bg))
         {
@@ -565,10 +790,10 @@ public class ModernComboBox : ComboBox
             Rectangle pillRect = new Rectangle(e.Bounds.Right - pillWidth - 6, e.Bounds.Y + (e.Bounds.Height - pillHeight) / 2, pillWidth, pillHeight);
 
             using GraphicsPath pillPath = Win11CardPanel.CreateRoundRect(pillRect, 4);
-            using SolidBrush pillBrush = new SolidBrush(isSelected ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(45, badge.Color));
+            using SolidBrush pillBrush = new SolidBrush((isSelected && !isEditBox) ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(45, badge.Color));
             e.Graphics.FillPath(pillBrush, pillPath);
 
-            using SolidBrush badgeTextBrush = new SolidBrush(isSelected ? Color.White : badge.Color);
+            using SolidBrush badgeTextBrush = new SolidBrush((isSelected && !isEditBox) ? Color.White : badge.Color);
             using StringFormat sfBadge = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             e.Graphics.DrawString(badge.Text, badgeFont, badgeTextBrush, pillRect, sfBadge);
 
@@ -586,7 +811,7 @@ public class ModernComboBox : ComboBox
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_MOUSEWHEEL)
+        if (m.Msg == WM_MOUSEWHEEL && !this.DroppedDown)
         {
             Control? parent = this.Parent;
             while (parent != null && !(parent is DarkScrollPanel))
@@ -601,15 +826,23 @@ public class ModernComboBox : ComboBox
         }
 
         base.WndProc(ref m);
+
+        // Immediately clear any auto-selection triggered by Win32 during resize or layout changes
+        if (m.Msg == WM_SIZE || m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SETFOCUS)
+        {
+            ClearNativeEditSelection();
+        }
+
         if (m.Msg == WM_PAINT)
         {
+            ClearNativeEditSelection();
             using Graphics g = Graphics.FromHwnd(this.Handle);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using Pen innerPen = new Pen(this.BackColor, 2f);
             g.DrawRectangle(innerPen, 0, 0, this.Width - 1, this.Height - 1);
 
             using GraphicsPath borderPath = Win11CardPanel.CreateRoundRect(new Rectangle(0, 0, this.Width - 1, this.Height - 1), 5);
-            using Pen outerPen = new Pen(this.Focused ? Color.FromArgb(0, 120, 212) : Color.FromArgb(68, 68, 68), 1f);
+            using Pen outerPen = new Pen(this.DroppedDown ? Color.FromArgb(0, 120, 212) : Color.FromArgb(68, 68, 68), 1f);
             g.DrawPath(outerPen, borderPath);
         }
     }

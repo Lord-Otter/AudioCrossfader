@@ -8,91 +8,9 @@ public class SettingsForm : Form
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-    private Win11CardPanel _pillTrack = null!;
-    private ModernButton _navBtnGeneral = null!;
-    private ModernButton _navBtnGroups = null!;
-    private ModernButton _navBtnPersonalization = null!;
-    private DarkScrollPanel _pageGeneral = null!;
-    private DarkScrollPanel _pageGroups = null!;
-    private DarkScrollPanel _pagePersonalization = null!;
-
-    private Win11CardPanel _keysCard = null!;
-    private Win11CardPanel _cycleListCard = null!;
-    private Label _lblCycleCardTitle = null!;
-    private ModernButton _btnAddCycleEntry = null!;
-    private Panel _cycleSlotsHost = null!;
-
-    private Win11CardPanel _previewCard = null!;
-    private Win11CardPanel _overlayStyleCard = null!;
-    private Win11CardPanel _carouselCard = null!;
-    private Win11CardPanel _layoutCard = null!;
-    private Win11CardPanel _behaviorCard = null!;
-
-    private ModernButton _btnRevert = null!;
-    private ModernButton _btnSave = null!;
-
-    private Label _lblKey1 = null!;
-    private TextBox _txtKey1 = null!;
-    private ModernButton _btnRec1 = null!;
-
-    private Label _lblKey2 = null!;
-    private TextBox _txtKey2 = null!;
-    private ModernButton _btnRec2 = null!;
-
-    private Label _lblKey3 = null!;
-    private TextBox _txtKey3 = null!;
-    private ModernButton _btnRec3 = null!;
-
-    private Label _lblKeyCycleNext = null!;
-    private TextBox _txtKeyCycleNext = null!;
-    private ModernButton _btnRecCycleNext = null!;
-
-    private Label _lblKeyCyclePrev = null!;
-    private TextBox _txtKeyCyclePrev = null!;
-    private ModernButton _btnRecCyclePrev = null!;
-
-    private CheckBox _chkKeepOverlayAlwaysOn = null!;
-    private ModernComboBox _cmbIdentityMode = null!;
-    private ModernComboBox _cmbLevelMode = null!;
-    private ModernComboBox _cmbCarouselStyle = null!;
-    private CheckBox _chkUseSourceBgColors = null!;
-    private CheckBox _chkFadeBgWithVolume = null!;
-    private CheckBox _chkShowCarousel = null!;
-    private CheckBox _chkEnableAnimations = null!;
-    private CheckBox _chkCarouselBg = null!;
-    private ModernComboBox _cmbPosition = null!;
-    private TextBox _txtPopupDuration = null!;
-    private TextBox _txtOverlayOpacity = null!;
-    private TextBox _txtStepSize = null!;
-    private TextBox _txtWidth = null!;
-    private TextBox _txtHeight = null!;
-    private CheckBox _chkStartup = null!;
-    private CheckBox _chkPauseMediaOnMute = null!;
-    private CheckBox _chkInterpolation = null!;
-    private TextBox _txtInterpSpeed = null!;
-    private CheckBox _chkBuffer = null!;
-
-    private RoundedColorSwatch _unmutedColorBox = null!;
-    private RoundedColorSwatch _mutedColorBox = null!;
-
-    private readonly TrayApplicationContext _context;
-
-    private AppSettings _draftSettings;
-    private AppSettings _savedSettingsSnapshot;
-    private DetectedAudioPrograms _detectedAudio = new DetectedAudioPrograms();
-    private Label _lblStatus = null!;
-
-    private bool _isRecording = false;
-    private ModernButton? _activeRecordButton = null;
-    private TextBox? _activeTargetTextBox = null;
-    private Action<int>? _activeKeyCommitCallback = null;
-    private string _previousButtonText = "";
-    private string _previousTextBoxText = "";
-    private KeyCaptureFilter? _mouseFilter;
-    private bool _isInitializing = true;
-    private int _activeTabIndex = 0;
-
     private const int ENUM_CURRENT_SETTINGS = -1;
+
+    private Panel _monitorRowsPanel = null!;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct DEVMODE
@@ -141,6 +59,103 @@ public class SettingsForm : Form
         return (scr.Bounds.Width, scr.Bounds.Height);
     }
 
+    private const int CarouselPairCardHeight = 100;
+    private const int StandalonePairCardHeight = 176;
+
+    private static readonly object[] GlobalMuteModeOptions = new object[]
+    {
+        "Cycle R → L",
+        "Cycle L → R",
+        "Mute Both",
+        "Mute Left",
+        "Mute Right"
+    };
+
+    private static readonly object[] PairMuteModeOptions = new object[]
+    {
+        "Use Global",
+        "Cycle R → L",
+        "Cycle L → R",
+        "Mute Both",
+        "Mute Left",
+        "Mute Right"
+    };
+
+    private Win11CardPanel _pillTrack = null!;
+    private ModernButton _navBtnGeneral = null!;
+    private ModernButton _navBtnGroups = null!;
+    private ModernButton _navBtnPersonalization = null!;
+    private DarkScrollPanel _pageGeneral = null!;
+    private DarkScrollPanel _pageGroups = null!;
+    private DarkScrollPanel _pagePersonalization = null!;
+
+    // Merged Carousel Pairs + Global Hotkeys Box
+    private Win11CardPanel _cycleListCard = null!;
+    private Label _lblCycleCardTitle = null!;
+    private ModernButton _btnAddCycleEntry = null!;
+    private Panel _cycleSlotsHost = null!;
+    private Panel _globalKeysHost = null!;
+
+    // Standalone (Non-Carousel) Pairs Box
+    private Win11CardPanel _standaloneListCard = null!;
+    private Label _lblStandaloneCardTitle = null!;
+    private ModernButton _btnAddStandaloneEntry = null!;
+    private Panel _standaloneSlotsHost = null!;
+
+    private Win11CardPanel _previewCard = null!;
+    private Win11CardPanel _overlayStyleCard = null!;
+    private Win11CardPanel _carouselCard = null!;
+    private Win11CardPanel _layoutCard = null!;
+    private Win11CardPanel _behaviorCard = null!;
+
+    private ModernButton _btnRevert = null!;
+    private ModernButton _btnSave = null!;
+
+    private KeybindBox _kbKey1 = null!;
+    private KeybindBox _kbKey2 = null!;
+    private KeybindBox _kbKey3 = null!;
+    private KeybindBox _kbKeyCycleNext = null!;
+    private KeybindBox _kbKeyCyclePrev = null!;
+    private ModernComboBox _cmbGlobalMuteMode = null!;
+
+    private CheckBox _chkKeepOverlayAlwaysOn = null!;
+    private ModernComboBox _cmbIdentityMode = null!;
+    private ModernComboBox _cmbLevelMode = null!;
+    private ModernComboBox _cmbCarouselStyle = null!;
+    private CheckBox _chkUseSourceBgColors = null!;
+    private CheckBox _chkFadeBgWithVolume = null!;
+    private CheckBox _chkShowCarousel = null!;
+    private CheckBox _chkEnableAnimations = null!;
+    private CheckBox _chkCarouselBg = null!;
+    private ModernComboBox _cmbPosition = null!;
+    private TextBox _txtPopupDuration = null!;
+    private TextBox _txtOverlayOpacity = null!;
+    private TextBox _txtStepSize = null!;
+    private TextBox _txtWidth = null!;
+    private TextBox _txtHeight = null!;
+    private CheckBox _chkStartup = null!;
+    private CheckBox _chkInterpolation = null!;
+    private TextBox _txtInterpSpeed = null!;
+    private CheckBox _chkBuffer = null!;
+
+    private RoundedColorSwatch _unmutedColorBox = null!;
+    private RoundedColorSwatch _mutedColorBox = null!;
+
+    private readonly TrayApplicationContext _context;
+    private readonly ToolTip _toolTip = new ToolTip();
+
+    private AppSettings _draftSettings;
+    private AppSettings _savedSettingsSnapshot;
+    private DetectedAudioPrograms _detectedAudio = new DetectedAudioPrograms();
+    private Label _lblStatus = null!;
+
+    private bool _isRecording = false;
+    private KeybindBox? _activeKeybindBox = null;
+    private Action<int>? _activeKeyCommitCallback = null;
+    private KeyCaptureFilter? _mouseFilter;
+    private bool _isInitializing = true;
+    private int _activeTabIndex = 0;
+
     public SettingsForm(AppSettings initialSettings, TrayApplicationContext context)
     {
         _context = context;
@@ -150,7 +165,7 @@ public class SettingsForm : Form
 
         this.Text = "Audio Crossfader Settings";
         this.Size = new Size(540, 780);
-        this.MinimumSize = new Size(520, 560);
+        this.MinimumSize = new Size(340, 420);
         this.FormBorderStyle = FormBorderStyle.Sizable;
         this.MaximizeBox = true;
         this.MinimizeBox = true;
@@ -200,7 +215,7 @@ public class SettingsForm : Form
 
         contentHost.BringToFront();
 
-        _mouseFilter = new KeyCaptureFilter(CancelRecording);
+        _mouseFilter = new KeyCaptureFilter(this);
         Application.AddMessageFilter(_mouseFilter);
 
         this.FormClosed += (s, e) =>
@@ -240,52 +255,142 @@ public class SettingsForm : Form
         if (_pillTrack == null) return;
 
         int clientW = this.ClientSize.Width;
-        int trackW = Math.Max(460, clientW - 36);
-        _pillTrack.Width = trackW;
+        int viewportW = Math.Max(496, clientW - 14);
+        int cardW = Math.Max(468, viewportW - 28);
+
+        // Stretch top navigation bar across the window
+        int effectiveBarW = Math.Max(468, clientW - 36);
+        _pillTrack.Width = effectiveBarW;
 
         int tabGap = 4;
-        int availW = trackW - 8 - (tabGap * 2);
+        int availW = effectiveBarW - 8 - (tabGap * 2);
         int tab1W = availW / 3;
         int tab2W = availW / 3;
         int tab3W = availW - tab1W - tab2W;
 
-        _navBtnGeneral.Left = 4;
-        _navBtnGeneral.Width = tab1W;
-
-        _navBtnGroups.Left = _navBtnGeneral.Right + tabGap;
-        _navBtnGroups.Width = tab2W;
-
-        _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap;
-        _navBtnPersonalization.Width = tab3W;
+        _navBtnGeneral.Left = 4; _navBtnGeneral.Width = tab1W;
+        _navBtnGroups.Left = _navBtnGeneral.Right + tabGap; _navBtnGroups.Width = tab2W;
+        _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap; _navBtnPersonalization.Width = tab3W;
 
         if (_btnSave != null && _btnRevert != null && _lblStatus != null)
         {
-            _lblStatus.Width = trackW;
-            _btnSave.Left = clientW - 18 - _btnSave.Width;
+            _lblStatus.Width = effectiveBarW;
+            _btnSave.Left = Math.Max(_btnRevert.Right + 12, clientW - 18 - _btnSave.Width);
         }
-
-        int cardW = Math.Max(460, (_pageGeneral?.ContentViewportWidth ?? (clientW - 12)) - 28);
 
         if (_cycleListCard != null)
         {
             _cycleListCard.Width = cardW;
             _btnAddCycleEntry.Left = cardW - 14 - _btnAddCycleEntry.Width;
             _cycleSlotsHost.Width = cardW - 24;
-        }
-        if (_keysCard != null) _keysCard.Width = cardW;
 
-        if (_previewCard != null) _previewCard.Width = cardW;
-        if (_overlayStyleCard != null) _overlayStyleCard.Width = cardW;
-        if (_carouselCard != null) _carouselCard.Width = cardW;
-        if (_layoutCard != null) _layoutCard.Width = cardW;
-        if (_behaviorCard != null) _behaviorCard.Width = cardW;
+            if (_globalKeysHost != null)
+            {
+                _globalKeysHost.Width = cardW - 24;
+                int kbWidth = Math.Max(220, _globalKeysHost.Width - 142);
+                if (_kbKey1 != null) _kbKey1.Width = kbWidth;
+                if (_kbKey2 != null) _kbKey2.Width = kbWidth;
+                if (_kbKey3 != null) _kbKey3.Width = kbWidth;
+                if (_cmbGlobalMuteMode != null) _cmbGlobalMuteMode.Width = kbWidth;
+                if (_kbKeyCycleNext != null) _kbKeyCycleNext.Width = kbWidth;
+                if (_kbKeyCyclePrev != null) _kbKeyCyclePrev.Width = kbWidth;
+            }
+        }
+
+        if (_standaloneListCard != null)
+        {
+            _standaloneListCard.Width = cardW;
+            _btnAddStandaloneEntry.Left = cardW - 14 - _btnAddStandaloneEntry.Width;
+            _standaloneSlotsHost.Width = cardW - 24;
+        }
 
         if (!_isInitializing)
         {
-            PopulateCycleListUI();
-            RefreshGroupsTabUI();
+            ResizeExistingPairCards(_cycleSlotsHost);
+            ResizeExistingPairCards(_standaloneSlotsHost);
+            ResizeExistingGroupCards(cardW);
+            StretchPersonalizationControls(cardW);
+
             ReflowGeneralPage();
             ReflowPersonalizationPage();
+            _pageGroups?.RecalculateScroll();
+        }
+    }
+
+    private void StretchPersonalizationControls(int cardW)
+    {
+        if (_previewCard == null) return;
+
+        _previewCard.Width = cardW;
+        _overlayStyleCard.Width = cardW;
+        _carouselCard.Width = cardW;
+        _layoutCard.Width = cardW;
+        _behaviorCard.Width = cardW;
+
+        int rightStretchW = Math.Max(265, cardW - 185 - 18);
+
+        _cmbIdentityMode.Width = rightStretchW;
+        _cmbLevelMode.Width = rightStretchW;
+        _unmutedColorBox.Width = rightStretchW;
+        _mutedColorBox.Width = rightStretchW;
+        _cmbCarouselStyle.Width = rightStretchW;
+        _cmbPosition.Width = rightStretchW;
+
+        _chkCarouselBg.Left = 185;
+
+        if (_monitorRowsPanel != null)
+        {
+            int panelW = cardW - 32;
+            _monitorRowsPanel.Width = panelW;
+            int monComboW = Math.Max(160, panelW - 236);
+            foreach (Control c in _monitorRowsPanel.Controls)
+            {
+                if (c is ModernComboBox cmb)
+                {
+                    cmb.Left = 236;
+                    cmb.Width = monComboW;
+                }
+            }
+        }
+    }
+
+    private void ResizeExistingGroupCards(int cardW)
+    {
+        if (_pageGroups == null) return;
+
+        int nameBoxW = Math.Max(200, cardW - 196);
+        int exeComboW = Math.Max(240, cardW - 154);
+
+        foreach (Control c in _pageGroups.InnerControls)
+        {
+            if (c is ModernButton btn && btn.Text == "+ New Group")
+            {
+                btn.Left = 18 + cardW - 126;
+            }
+            else if (c is Win11CardPanel card)
+            {
+                card.Width = cardW;
+                foreach (Control child in card.Controls)
+                {
+                    if (child is TextBox txt)
+                    {
+                        txt.Width = nameBoxW;
+                    }
+                    else if (child is ModernComboBox cmb)
+                    {
+                        cmb.Width = exeComboW;
+                    }
+                    else if (child is ModernButton childBtn)
+                    {
+                        if (childBtn.Text == "Delete Group")
+                            childBtn.Left = cardW - 126;
+                        else if (childBtn.Text == "Browse...")
+                            childBtn.Left = 12 + exeComboW + 6;
+                        else if (childBtn.Text == "✕")
+                            childBtn.Left = 12 + exeComboW + 94;
+                    }
+                }
+            }
         }
     }
 
@@ -312,7 +417,7 @@ public class SettingsForm : Form
 
         _navBtnGeneral = CreateNavTabButton("Sources", 4, 4, 152, () => SwitchTab(0));
         _navBtnGroups = CreateNavTabButton("Groups", 160, 4, 152, () => SwitchTab(1));
-        _navBtnPersonalization = CreateNavTabButton("Appearance & Behavior", 316, 4, 148, () => SwitchTab(2));
+        _navBtnPersonalization = CreateNavTabButton("Appearance && Behavior", 316, 4, 148, () => SwitchTab(2));
 
         _pillTrack.Controls.Add(_navBtnGeneral);
         _pillTrack.Controls.Add(_navBtnGroups);
@@ -354,9 +459,9 @@ public class SettingsForm : Form
         StyleNavButton(_navBtnGroups, index == 1);
         StyleNavButton(_navBtnPersonalization, index == 2);
 
-        if (index == 0) _pageGeneral.RecalculateScroll();
-        else if (index == 1) _pageGroups.RecalculateScroll();
-        else if (index == 2) _pagePersonalization.RecalculateScroll();
+        // Ensure the active page and all its child controls are sized and reflowed
+        this.ActiveControl = null;
+        HandleWindowResize();
     }
 
     private void StyleNavButton(ModernButton btn, bool active)
@@ -538,6 +643,7 @@ public class SettingsForm : Form
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
         int y = 4;
 
+        // 1. Merged Carousel Source Pairs & Global Hotkeys Box
         _cycleListCard = new Win11CardPanel
         {
             Left = 18,
@@ -548,10 +654,10 @@ public class SettingsForm : Form
 
         _lblCycleCardTitle = new Label
         {
-            Text = "Source Pairs",
+            Text = "Carousel Pairs & Global Hotkeys",
             Left = 14,
             Top = 12,
-            Width = 220,
+            Width = 290,
             Height = 20,
             Font = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(96, 205, 255)
@@ -583,50 +689,118 @@ public class SettingsForm : Form
             BackColor = Color.Transparent
         };
         _cycleListCard.Controls.Add(_cycleSlotsHost);
-        page.InnerControls.Add(_cycleListCard);
-        y = _cycleListCard.Bottom + 10;
 
-        _keysCard = new Win11CardPanel
+        // Global Hotkeys section embedded inside the Carousel Pairs card
+        _globalKeysHost = new Panel
         {
-            Left = 18,
-            Top = y,
-            Width = 468
+            Left = 12,
+            Top = 42,
+            Width = 444,
+            Height = 212,
+            BackColor = Color.Transparent
+        };
+        _globalKeysHost.Paint += (s, e) =>
+        {
+            using Pen sepPen = new Pen(Color.FromArgb(62, 62, 62), 1);
+            e.Graphics.DrawLine(sepPen, 2, 2, _globalKeysHost.Width - 4, 2);
         };
 
         int ky = 10;
-        AddSectionHeader(_keysCard, "Hotkeys", 14, ref ky);
+        AddSectionHeader(_globalKeysHost, "Global Hotkeys (Click to bind, Esc to clear)", 2, ref ky);
 
-        _lblKey1 = AddAlignedLabel(_keysCard, "Fade Right / Up:", 14, ky);
-        var r1 = AddKeyBindControls(_keysCard, ref ky, null);
-        _txtKey1 = r1.txt;
-        _btnRec1 = r1.btn;
+        AddAlignedLabel(_globalKeysHost, "Fade Left / Down:", 2, ky);
+        _kbKey2 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyDown = val);
 
-        _lblKey2 = AddAlignedLabel(_keysCard, "Fade Left / Down:", 14, ky);
-        var r2 = AddKeyBindControls(_keysCard, ref ky, null);
-        _txtKey2 = r2.txt;
-        _btnRec2 = r2.btn;
+        AddAlignedLabel(_globalKeysHost, "Fade Right / Up:", 2, ky);
+        _kbKey1 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyUp = val);
 
-        _lblKey3 = AddAlignedLabel(_keysCard, "Mute Toggle:", 14, ky);
-        var r3 = AddKeyBindControls(_keysCard, ref ky, null);
-        _txtKey3 = r3.txt;
-        _btnRec3 = r3.btn;
+        AddAlignedLabel(_globalKeysHost, "Mute Toggle:", 2, ky);
+        _kbKey3 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyMute = val);
 
-        _lblKeyCycleNext = AddAlignedLabel(_keysCard, "Next Pair:", 14, ky);
-        var rNext = AddKeyBindControls(_keysCard, ref ky, val =>
+        AddAlignedLabel(_globalKeysHost, "Mute Behavior:", 2, ky);
+        _cmbGlobalMuteMode = new ModernComboBox
+        {
+            Left = 136,
+            Top = ky,
+            Width = 304,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _cmbGlobalMuteMode.Items.AddRange(GlobalMuteModeOptions);
+        _cmbGlobalMuteMode.SelectedItem = _draftSettings.GlobalMuteMode;
+        if (_cmbGlobalMuteMode.SelectedIndex == -1) _cmbGlobalMuteMode.SelectedIndex = 0;
+        _cmbGlobalMuteMode.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            _draftSettings.GlobalMuteMode = _cmbGlobalMuteMode.SelectedItem?.ToString() ?? "Cycle R → L";
+            MarkDirty();
+        };
+        _globalKeysHost.Controls.Add(_cmbGlobalMuteMode);
+        ky += 32;
+
+        AddAlignedLabel(_globalKeysHost, "Next Pair:", 2, ky);
+        _kbKeyCycleNext = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val =>
         {
             _draftSettings.CycleNextKey = val;
             _draftSettings.QuickSwapKey = val;
-        }, allowClear: true);
-        _txtKeyCycleNext = rNext.txt;
-        _btnRecCycleNext = rNext.btn;
+        });
 
-        _lblKeyCyclePrev = AddAlignedLabel(_keysCard, "Previous Pair:", 14, ky);
-        var rPrev = AddKeyBindControls(_keysCard, ref ky, val => _draftSettings.CyclePrevKey = val, allowClear: true);
-        _txtKeyCyclePrev = rPrev.txt;
-        _btnRecCyclePrev = rPrev.btn;
+        AddAlignedLabel(_globalKeysHost, "Previous Pair:", 2, ky);
+        _kbKeyCyclePrev = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CyclePrevKey = val);
 
-        _keysCard.FitHeightToContent(12);
-        page.InnerControls.Add(_keysCard);
+        _globalKeysHost.Height = ky + 2;
+        _cycleListCard.Controls.Add(_globalKeysHost);
+
+        page.InnerControls.Add(_cycleListCard);
+        y = _cycleListCard.Bottom + 10;
+
+        // 2. Standalone Source Pairs Box (Excluded from Carousel, always has dedicated keybinds)
+        _standaloneListCard = new Win11CardPanel
+        {
+            Left = 18,
+            Top = y,
+            Width = 468,
+            Height = 44
+        };
+
+        _lblStandaloneCardTitle = new Label
+        {
+            Text = "Standalone Pairs (Dedicated Keybinds)",
+            Left = 14,
+            Top = 12,
+            Width = 300,
+            Height = 20,
+            Font = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(96, 205, 255)
+        };
+        _standaloneListCard.Controls.Add(_lblStandaloneCardTitle);
+
+        _btnAddStandaloneEntry = CreateModernButton("+ Add Pair", 334, 9, 120, 26, true);
+        _btnAddStandaloneEntry.Click += (s, e) =>
+        {
+            _draftSettings.StandalonePairs.Add(new CrossfadeCyclePair
+            {
+                Source1 = "",
+                Color1Hex = "#1B3B5A",
+                Source2 = "",
+                Color2Hex = "#4A2040",
+                UseCustomKeybinds = true
+            });
+            PopulateCycleListUI();
+            ReflowGeneralPage();
+            MarkDirty();
+        };
+        _standaloneListCard.Controls.Add(_btnAddStandaloneEntry);
+
+        _standaloneSlotsHost = new Panel
+        {
+            Left = 12,
+            Top = 42,
+            Width = 444,
+            Height = 0,
+            BackColor = Color.Transparent
+        };
+        _standaloneListCard.Controls.Add(_standaloneSlotsHost);
+        page.InnerControls.Add(_standaloneListCard);
 
         return page;
     }
@@ -638,50 +812,167 @@ public class SettingsForm : Form
 
     private void PopulateCycleListUI()
     {
-        if (_cycleSlotsHost == null) return;
-        _cycleSlotsHost.SuspendLayout();
-        _cycleSlotsHost.Controls.Clear();
+        PopulatePairListHost(_cycleSlotsHost, _draftSettings.CrossfadeCycleList, _draftSettings.StandalonePairs, isCarouselList: true);
+        PopulatePairListHost(_standaloneSlotsHost, _draftSettings.StandalonePairs, _draftSettings.CrossfadeCycleList, isCarouselList: false);
+    }
+
+    private void PopulatePairListHost(
+        Panel? host,
+        List<CrossfadeCyclePair> targetList,
+        List<CrossfadeCyclePair> oppositeList,
+        bool isCarouselList)
+    {
+        if (host == null) return;
+        host.SuspendLayout();
+        host.Controls.Clear();
 
         List<string> options = GetAvailableSourceOptions();
         int y = 0;
-        int hostW = Math.Max(442, _cycleSlotsHost.Width);
-        int comboW = Math.Max(222, hostW - 220);
+        int hostW = Math.Max(442, host.Width);
 
-        for (int i = 0; i < _draftSettings.CrossfadeCycleList.Count; i++)
+        // Layout geometry:
+        // Action button ("To Standalone" / "Browse"): 94px
+        // Up / Down arrows: 30px
+        // Delete 'X' button: 32px wide, 57px tall (spans Row 1 & Row 2)
+        int comboW = Math.Max(140, hostW - 234);
+        int btnActionLeft = 56 + comboW + 6; // Move & Browse buttons (Width = 94)
+        int btnArrowLeft = btnActionLeft + 94 + 4; // Up & Down arrows (Width = 30)
+        int btnDelLeft = btnArrowLeft + 30 + 4; // 2-Row 'X' button (Width = 32)
+
+        for (int i = 0; i < targetList.Count; i++)
         {
             int index = i;
-            var pair = _draftSettings.CrossfadeCycleList[index];
+            var pair = targetList[index];
+            bool isSingle = pair.IsSingleMode;
+
+            int cardH = isCarouselList
+                ? (isSingle ? 68 : CarouselPairCardHeight)
+                : (isSingle ? 144 : StandalonePairCardHeight);
+
             Win11CardPanel pairCard = new Win11CardPanel
             {
                 Left = 0,
                 Top = y,
                 Width = hostW,
-                Height = 72,
+                Height = cardH,
                 FillColor = Color.FromArgb(48, 48, 48),
                 BorderColor = Color.FromArgb(66, 66, 66),
-                CornerRadius = 6
+                CornerRadius = 6,
+                Padding = new Padding(0)
             };
 
+            // --- TOP BLOCK PANEL (Holds Row 1 [Mode] + Row 2 [Source 1] + 2-row tall X button) ---
+            Panel topBlockPanel = new Panel
+            {
+                Left = 2,
+                Top = 4,
+                Width = hostW - 4,
+                Height = 62,
+                BackColor = Color.FromArgb(48, 48, 48),
+                Tag = "TopBlockPanel"
+            };
+
+            // Row 1: Mode Dropdown + Invert Checkbox + Move List Button + Up Arrow
+            Label lblMode = new Label
+            {
+                Text = "Mode:",
+                Left = 6,
+                Top = 6,
+                Width = 46,
+                Height = 18,
+                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 190, 190)
+            };
+            topBlockPanel.Controls.Add(lblMode);
+
+            int invertW = 62;
+            int modeComboW = Math.Max(95, comboW - invertW - 6);
+
+            ModernComboBox cmbMode = new ModernComboBox
+            {
+                Left = 56,
+                Top = 2,
+                Width = modeComboW,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Tag = "ModeCombo"
+            };
+            cmbMode.Items.AddRange(new object[] { "Crossfade", "Standard Volume" });
+            cmbMode.SelectedItem = pair.IsSingleMode ? "Standard Volume" : "Crossfade";
+            topBlockPanel.Controls.Add(cmbMode);
+
+            CheckBox chkInvert = new CheckBox
+            {
+                Text = "Invert",
+                Checked = pair.InvertDirection,
+                Left = 56 + modeComboW + 6,
+                Top = 4,
+                Width = invertW,
+                Height = 22,
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                ForeColor = Color.FromArgb(215, 215, 215),
+                Tag = "InvertChk"
+            };
+            _toolTip.SetToolTip(chkInvert, "Invert Volume Up / Down direction for this pair");
+            chkInvert.CheckedChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.InvertDirection = chkInvert.Checked;
+                MarkDirty();
+            };
+            topBlockPanel.Controls.Add(chkInvert);
+
+            ModernButton btnMoveList = CreateModernButton(isCarouselList ? "To Standalone" : "To Carousel", btnActionLeft, 2, 94, 25, false);
+            btnMoveList.Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold);
+            btnMoveList.Tag = "MoveListBtn";
+            btnMoveList.Click += (s, e) =>
+            {
+                targetList.RemoveAt(index);
+                pair.UseCustomKeybinds = isCarouselList;
+                oppositeList.Add(pair);
+                PopulateCycleListUI();
+                ReflowGeneralPage();
+                MarkDirty();
+                PushLivePreviewIfActive();
+            };
+            topBlockPanel.Controls.Add(btnMoveList);
+
+            ModernButton btnUp = CreateModernButton("▲", btnArrowLeft, 2, 30, 25, false);
+            btnUp.Tag = "UpBtn";
+            btnUp.Enabled = (index > 0);
+            btnUp.Click += (s, e) =>
+            {
+                if (index <= 0) return;
+                targetList.RemoveAt(index);
+                targetList.Insert(index - 1, pair);
+                PopulateCycleListUI();
+                ReflowGeneralPage();
+                MarkDirty();
+                PushLivePreviewIfActive();
+            };
+            topBlockPanel.Controls.Add(btnUp);
+
+            // Row 2 (y = 34 inside topBlockPanel): Source 1 + Browse + Down Arrow
             Label lblS1 = new Label
             {
-                Text = "L:",
-                Left = 8,
-                Top = 10,
+                Text = isSingle ? "S:" : "L:",
+                Left = 6,
+                Top = 38,
                 Width = 18,
                 Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(190, 190, 190)
             };
-            pairCard.Controls.Add(lblS1);
+            topBlockPanel.Controls.Add(lblS1);
 
-            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(28, 7, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
-            pairCard.Controls.Add(swatch1);
+            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(26, 35, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
+            topBlockPanel.Controls.Add(swatch1);
 
             ModernComboBox cmb1 = new ModernComboBox
             {
-                Left = 58,
-                Top = 7,
+                Left = 56,
+                Top = 35,
                 Width = comboW,
                 DropDownStyle = ComboBoxStyle.DropDown,
+                Tag = "Source1Combo",
                 BadgeResolver = ResolveDropdownBadge,
                 IconResolver = ResolveDropdownIcon
             };
@@ -706,70 +997,86 @@ public class SettingsForm : Form
                 pair.Source1 = ReadComboText(cmb1);
                 MarkDirty();
             };
-            pairCard.Controls.Add(cmb1);
+            topBlockPanel.Controls.Add(cmb1);
 
-            int btnRightStart = 58 + comboW + 6;
-
-            ModernButton btnBrowse1 = CreateModernButton("Browse", btnRightStart, 6, 74, 25, false);
+            ModernButton btnBrowse1 = CreateModernButton("Browse", btnActionLeft, 34, 94, 25, false);
+            btnBrowse1.Tag = "Browse1Btn";
             btnBrowse1.Click += (s, e) =>
             {
                 BrowseForExecutable(cmb1);
                 pair.Source1 = ReadComboText(cmb1);
                 PushLivePreviewIfActive();
             };
-            pairCard.Controls.Add(btnBrowse1);
+            topBlockPanel.Controls.Add(btnBrowse1);
 
-            ModernButton btnUp = CreateModernButton("▲", btnRightStart + 78, 6, 32, 25, false);
-            btnUp.Enabled = (index > 0);
-            btnUp.Click += (s, e) =>
+            ModernButton btnDown = CreateModernButton("▼", btnArrowLeft, 34, 30, 25, false);
+            btnDown.Tag = "DownBtn";
+            btnDown.Enabled = (index < targetList.Count - 1);
+            btnDown.Click += (s, e) =>
             {
-                if (index <= 0) return;
-                _draftSettings.CrossfadeCycleList.RemoveAt(index);
-                _draftSettings.CrossfadeCycleList.Insert(index - 1, pair);
+                if (index >= targetList.Count - 1) return;
+                targetList.RemoveAt(index);
+                targetList.Insert(index + 1, pair);
                 PopulateCycleListUI();
                 ReflowGeneralPage();
                 MarkDirty();
                 PushLivePreviewIfActive();
             };
-            pairCard.Controls.Add(btnUp);
+            topBlockPanel.Controls.Add(btnDown);
 
-            ModernButton btnDel = CreateModernButton("✕", btnRightStart + 114, 6, 34, 57, false, isDanger: true);
-            btnDel.Enabled = (_draftSettings.CrossfadeCycleList.Count > 1);
+            // Tall 2-Row Delete ('X') Button spanning Row 1 and Row 2
+            int totalPairsCount = _draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count;
+            ModernButton btnDel = CreateModernButton("✕", btnDelLeft, 2, 32, 57, false, isDanger: true);
+            btnDel.Tag = "DeleteBtn";
+            btnDel.Enabled = (totalPairsCount > 1);
             btnDel.Click += (s, e) =>
             {
-                if (_draftSettings.CrossfadeCycleList.Count <= 1)
+                if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
                 {
-                    MessageBox.Show("You must keep at least one crossfade pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                _draftSettings.CrossfadeCycleList.Remove(pair);
+                targetList.Remove(pair);
                 PopulateCycleListUI();
                 ReflowGeneralPage();
                 MarkDirty();
                 PushLivePreviewIfActive();
             };
-            pairCard.Controls.Add(btnDel);
+            topBlockPanel.Controls.Add(btnDel);
+
+            // --- ROW 3 PANEL (Source 2 + Browse ONLY - slides behind topBlockPanel when in Single Mode) ---
+            Panel row2Panel = new Panel
+            {
+                Left = 2,
+                Top = isSingle ? 34 : 66,
+                Width = hostW - 4,
+                Height = 30,
+                Visible = !isSingle,
+                BackColor = Color.FromArgb(48, 48, 48),
+                Tag = "Row2Panel"
+            };
 
             Label lblS2 = new Label
             {
                 Text = "R:",
-                Left = 8,
-                Top = 42,
+                Left = 6,
+                Top = 5,
                 Width = 18,
                 Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(190, 190, 190)
             };
-            pairCard.Controls.Add(lblS2);
+            row2Panel.Controls.Add(lblS2);
 
-            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(28, 39, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
-            pairCard.Controls.Add(swatch2);
+            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(26, 2, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
+            row2Panel.Controls.Add(swatch2);
 
             ModernComboBox cmb2 = new ModernComboBox
             {
-                Left = 58,
-                Top = 39,
+                Left = 56,
+                Top = 2,
                 Width = comboW,
                 DropDownStyle = ComboBoxStyle.DropDown,
+                Tag = "Source2Combo",
                 BadgeResolver = ResolveDropdownBadge,
                 IconResolver = ResolveDropdownIcon
             };
@@ -794,52 +1101,291 @@ public class SettingsForm : Form
                 pair.Source2 = ReadComboText(cmb2);
                 MarkDirty();
             };
-            pairCard.Controls.Add(cmb2);
+            row2Panel.Controls.Add(cmb2);
 
-            ModernButton btnBrowse2 = CreateModernButton("Browse", btnRightStart, 38, 74, 25, false);
+            ModernButton btnBrowse2 = CreateModernButton("Browse", btnActionLeft, 1, 94, 25, false);
+            btnBrowse2.Tag = "Browse2Btn";
             btnBrowse2.Click += (s, e) =>
             {
                 BrowseForExecutable(cmb2);
                 pair.Source2 = ReadComboText(cmb2);
                 PushLivePreviewIfActive();
             };
-            pairCard.Controls.Add(btnBrowse2);
+            row2Panel.Controls.Add(btnBrowse2);
 
-            ModernButton btnDown = CreateModernButton("▼", btnRightStart + 78, 38, 32, 25, false);
-            btnDown.Enabled = (index < _draftSettings.CrossfadeCycleList.Count - 1);
-            btnDown.Click += (s, e) =>
+            // --- STANDALONE KEYBINDS PANEL (Only used for Standalone Pairs) ---
+            Panel? bottomPanel = null;
+            if (!isCarouselList)
             {
-                if (index >= _draftSettings.CrossfadeCycleList.Count - 1) return;
-                _draftSettings.CrossfadeCycleList.RemoveAt(index);
-                _draftSettings.CrossfadeCycleList.Insert(index + 1, pair);
-                PopulateCycleListUI();
-                ReflowGeneralPage();
+                pair.UseCustomKeybinds = true;
+
+                bottomPanel = new Panel
+                {
+                    Left = 2,
+                    Top = isSingle ? 66 : 98,
+                    Width = hostW - 4,
+                    Height = 74,
+                    BackColor = Color.FromArgb(48, 48, 48),
+                    Tag = "BottomPanel"
+                };
+
+                Label lblMuteMode = new Label
+                {
+                    Text = "Mute:",
+                    Left = 6,
+                    Top = 4,
+                    Width = 46,
+                    Height = 18,
+                    Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(190, 190, 190)
+                };
+                bottomPanel.Controls.Add(lblMuteMode);
+
+                ModernComboBox cmbPairMute = new ModernComboBox
+                {
+                    Left = 56,
+                    Top = 0,
+                    Width = comboW,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Tag = "PairMuteCombo"
+                };
+                cmbPairMute.Items.AddRange(PairMuteModeOptions);
+                cmbPairMute.SelectedItem = string.IsNullOrWhiteSpace(pair.MuteMode) ? "Use Global" : pair.MuteMode;
+                if (cmbPairMute.SelectedIndex == -1) cmbPairMute.SelectedIndex = 0;
+                cmbPairMute.SelectedIndexChanged += (s, e) =>
+                {
+                    if (_isInitializing) return;
+                    pair.MuteMode = cmbPairMute.SelectedItem?.ToString() ?? "Use Global";
+                    MarkDirty();
+                };
+                bottomPanel.Controls.Add(cmbPairMute);
+
+                int rowLeft = 6;
+                int rowRight = btnDelLeft + 32;
+                int totalRowW = rowRight - rowLeft;
+                int colGap = 8;
+                int colW = (totalRowW - (colGap * 2)) / 3;
+
+                // Volume Down before Volume Up
+                AddSideBySideKeybindColumn(bottomPanel, "Fade Left / Down", rowLeft, colW, 28, pair.KeyDown, val => pair.KeyDown = val, 0);
+                AddSideBySideKeybindColumn(bottomPanel, "Fade Right / Up", rowLeft + colW + colGap, colW, 28, pair.KeyUp, val => pair.KeyUp = val, 1);
+                AddSideBySideKeybindColumn(bottomPanel, "Mute Toggle", rowLeft + (colW + colGap) * 2, totalRowW - (colW * 2) - (colGap * 2), 28, pair.KeyMute, val => pair.KeyMute = val, 2);
+
+                pairCard.Controls.Add(bottomPanel);
+            }
+            else
+            {
+                pair.UseCustomKeybinds = false;
+            }
+
+            cmbMode.SelectedIndexChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.ControlMode = cmbMode.SelectedItem?.ToString() ?? "Crossfade";
+                lblS1.Text = pair.IsSingleMode ? "S:" : "L:";
+                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, pair.IsSingleMode, isCarouselList);
                 MarkDirty();
                 PushLivePreviewIfActive();
             };
-            pairCard.Controls.Add(btnDown);
 
-            _cycleSlotsHost.Controls.Add(pairCard);
-            y += 78;
+            pairCard.Controls.Add(row2Panel);
+            pairCard.Controls.Add(topBlockPanel);
+            topBlockPanel.BringToFront(); // Keep topBlockPanel in front so row2Panel slides behind it
+
+            host.Controls.Add(pairCard);
+            y += cardH + 6;
         }
 
-        _cycleSlotsHost.Height = y;
-        _cycleSlotsHost.ResumeLayout();
+        host.Height = y;
+        host.ResumeLayout();
+    }
+
+    private void ResizeExistingPairCards(Panel? host)
+    {
+        if (host == null) return;
+        int hostW = Math.Max(442, host.Width);
+        int comboW = Math.Max(140, hostW - 234);
+        int btnActionLeft = 56 + comboW + 6;
+        int btnArrowLeft = btnActionLeft + 94 + 4;
+        int btnDelLeft = btnArrowLeft + 30 + 4;
+
+        int invertW = 62;
+        int modeComboW = Math.Max(95, comboW - invertW - 6);
+
+        int rowLeft = 6;
+        int rowRight = btnDelLeft + 32;
+        int totalRowW = rowRight - rowLeft;
+        int colGap = 8;
+        int colW = (totalRowW - (colGap * 2)) / 3;
+
+        foreach (Control ctrl in host.Controls)
+        {
+            if (ctrl is not Win11CardPanel pairCard) continue;
+            pairCard.Width = hostW;
+
+            foreach (Control subPanel in pairCard.Controls)
+            {
+                if (subPanel is not Panel p) continue;
+                p.Width = hostW - 4;
+
+                foreach (Control child in p.Controls)
+                {
+                    if (child.Tag is not string tag) continue;
+                    switch (tag)
+                    {
+                        case "Source1Combo":
+                        case "Source2Combo":
+                        case "PairMuteCombo":
+                            child.Width = comboW;
+                            break;
+                        case "ModeCombo":
+                            child.Width = modeComboW;
+                            break;
+                        case "InvertChk":
+                            child.Left = 56 + modeComboW + 6;
+                            break;
+                        case "MoveListBtn":
+                        case "Browse1Btn":
+                        case "Browse2Btn":
+                            child.Left = btnActionLeft;
+                            break;
+                        case "UpBtn":
+                        case "DownBtn":
+                            child.Left = btnArrowLeft;
+                            break;
+                        case "DeleteBtn":
+                            child.Left = btnDelLeft;
+                            break;
+                        case "KeyCol_0":
+                            child.Left = rowLeft;
+                            child.Width = colW;
+                            break;
+                        case "KeyCol_1":
+                            child.Left = rowLeft + colW + colGap;
+                            child.Width = colW;
+                            break;
+                        case "KeyCol_2":
+                            child.Left = rowLeft + (colW + colGap) * 2;
+                            child.Width = totalRowW - (colW * 2) - (colGap * 2);
+                            break;
+                    }
+                }
+            }
+        }
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        this.BeginInvoke(new Action(() =>
+        {
+            HandleWindowResize();
+            _pageGeneral.RecalculateScroll();
+            _pageGroups.RecalculateScroll();
+            _pagePersonalization.RecalculateScroll();
+        }));
+    }
+
+    private void AnimatePairCardModeChange(
+    Win11CardPanel pairCard,
+    Panel topBlockPanel,
+    Panel row2Panel,
+    Control? bottomSection,
+    bool toSingleMode,
+    bool isCarouselList)
+    {
+        topBlockPanel.BringToFront(); // Ensures row2Panel slides neatly BEHIND topBlockPanel
+
+        int targetCardH = isCarouselList
+            ? (toSingleMode ? 68 : CarouselPairCardHeight)
+            : (toSingleMode ? 144 : StandalonePairCardHeight);
+
+        int targetRow2Top = toSingleMode ? 34 : 66;
+        int targetBottomTop = toSingleMode ? 66 : 98;
+
+        row2Panel.Visible = true;
+
+        var animTimer = new System.Windows.Forms.Timer { Interval = 15 };
+        animTimer.Tick += (s, e) =>
+        {
+            if (pairCard.IsDisposed) { animTimer.Stop(); animTimer.Dispose(); return; }
+
+            pairCard.Height += (int)Math.Round((targetCardH - pairCard.Height) * 0.35f);
+            row2Panel.Top += (int)Math.Round((targetRow2Top - row2Panel.Top) * 0.35f);
+            if (bottomSection != null)
+                bottomSection.Top += (int)Math.Round((targetBottomTop - bottomSection.Top) * 0.35f);
+
+            if (Math.Abs(pairCard.Height - targetCardH) <= 1 && Math.Abs(row2Panel.Top - targetRow2Top) <= 1)
+            {
+                pairCard.Height = targetCardH;
+                row2Panel.Top = targetRow2Top;
+                if (bottomSection != null) bottomSection.Top = targetBottomTop;
+                row2Panel.Visible = !toSingleMode;
+                animTimer.Stop();
+                animTimer.Dispose();
+            }
+
+            int curY = 0;
+            if (pairCard.Parent != null)
+            {
+                foreach (Control sibling in pairCard.Parent.Controls)
+                {
+                    sibling.Top = curY;
+                    curY += sibling.Height + 6;
+                }
+                pairCard.Parent.Height = curY;
+            }
+            ReflowGeneralPage();
+        };
+        animTimer.Start();
+    }
+
+    private void AddSideBySideKeybindColumn(Control parent, string title, int left, int width, int topY, int initialKey, Action<int> onCommit, int colIndex = 0)
+    {
+        Label lbl = new Label
+        {
+            Text = title,
+            Left = left,
+            Top = topY,
+            Width = width,
+            Height = 15,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 8f, FontStyle.Regular),
+            ForeColor = Color.FromArgb(190, 190, 190),
+            Tag = $"KeyCol_{colIndex}"
+        };
+        parent.Controls.Add(lbl);
+
+        KeybindBox kb = new KeybindBox
+        {
+            Left = left,
+            Top = topY + 17,
+            Width = width,
+            Height = 25,
+            Binding = initialKey,
+            Tag = $"KeyCol_{colIndex}"
+        };
+        kb.Click += (s, e) => StartRecording(kb, onCommit);
+        parent.Controls.Add(kb);
     }
 
     private void ReflowGeneralPage()
     {
-        if (_keysCard == null || _cycleListCard == null)
+        if (_cycleListCard == null || _standaloneListCard == null || _globalKeysHost == null)
             return;
 
-        int itemCount = _draftSettings.CrossfadeCycleList.Count;
-
-        _cycleSlotsHost.Visible = (itemCount > 0);
+        int cycleCount = _draftSettings.CrossfadeCycleList.Count;
+        _cycleSlotsHost.Visible = (cycleCount > 0);
         _cycleListCard.Top = 4;
-        _cycleListCard.Height = (itemCount == 0) ? 44 : (46 + _cycleSlotsHost.Height);
 
-        _keysCard.Top = _cycleListCard.Bottom + 10;
-        _keysCard.FitHeightToContent(12);
+        int keysTop = (cycleCount == 0) ? 42 : (44 + _cycleSlotsHost.Height);
+        _globalKeysHost.Top = keysTop;
+        _cycleListCard.Height = _globalKeysHost.Bottom + 10;
+
+        int standaloneCount = _draftSettings.StandalonePairs.Count;
+        _standaloneSlotsHost.Visible = (standaloneCount > 0);
+        _standaloneListCard.Top = _cycleListCard.Bottom + 10;
+        _standaloneListCard.Height = (standaloneCount == 0) ? 44 : (46 + _standaloneSlotsHost.Height);
 
         _pageGeneral?.RecalculateScroll();
     }
@@ -917,7 +1463,7 @@ public class SettingsForm : Form
         int py = 10;
         AddSectionHeader(_previewCard, "Preview", 14, ref py);
 
-        ModernButton btnShowPreview = CreateModernButton("Test Overlay", 14, py, 145, 28, true);
+        ModernButton btnShowPreview = CreateModernButton("Test Overlay", 14, py, 155, 28, true);
         btnShowPreview.Click += (s, e) => PushLivePreviewIfActive(forceTrigger: true);
         _previewCard.Controls.Add(btnShowPreview);
 
@@ -925,9 +1471,9 @@ public class SettingsForm : Form
         {
             Text = "Pin overlay while settings open",
             Checked = _draftSettings.KeepOverlayOnWhileSettingsOpen,
-            Left = 172,
+            Left = 185,
             Top = py + 3,
-            Width = 280,
+            Width = 265,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -958,9 +1504,10 @@ public class SettingsForm : Form
         {
             Text = "App Display:",
             Left = 14,
-            Top = sy + 3,
+            Top = sy + 4,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _overlayStyleCard.Controls.Add(lblIdMode);
 
@@ -981,15 +1528,16 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
         _overlayStyleCard.Controls.Add(_cmbIdentityMode);
-        sy += 30;
+        sy += 32;
 
         Label lblLvlMode = new Label
         {
             Text = "Volume Display:",
             Left = 14,
-            Top = sy + 3,
+            Top = sy + 4,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _overlayStyleCard.Controls.Add(lblLvlMode);
 
@@ -1010,7 +1558,7 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
         _overlayStyleCard.Controls.Add(_cmbLevelMode);
-        sy += 30;
+        sy += 32;
 
         Label lblOpacity = new Label
         {
@@ -1018,7 +1566,8 @@ public class SettingsForm : Form
             Left = 14,
             Top = sy + 3,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _overlayStyleCard.Controls.Add(lblOpacity);
 
@@ -1027,7 +1576,7 @@ public class SettingsForm : Form
             Text = _draftSettings.OverlayOpacity.ToString(),
             Left = 185,
             Top = sy,
-            Width = 80,
+            Width = 90,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
@@ -1108,6 +1657,43 @@ public class SettingsForm : Form
         int cy = 10;
         AddSectionHeader(_carouselCard, "Carousel", 14, ref cy);
 
+        Label lblCarouselMotion = new Label
+        {
+            Text = "Carousel Style:",
+            Left = 14,
+            Top = cy + 4,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _carouselCard.Controls.Add(lblCarouselMotion);
+
+        _cmbCarouselStyle = new ModernComboBox
+        {
+            Left = 185,
+            Top = cy,
+            Width = 265,
+            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _cmbCarouselStyle.Items.AddRange(new object[]
+        {
+            "3D Floating Pills",
+            "Fluid Moving Deck",
+            "3D Coverflow Arc",
+            "Stacked Rolodex"
+        });
+        _cmbCarouselStyle.SelectedItem = _draftSettings.CarouselMotionStyle;
+        if (_cmbCarouselStyle.SelectedIndex == -1) _cmbCarouselStyle.SelectedIndex = 0;
+        _cmbCarouselStyle.SelectedIndexChanged += (s, e) =>
+        {
+            _draftSettings.CarouselMotionStyle = _cmbCarouselStyle.SelectedItem?.ToString() ?? "3D Floating Pills";
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        _carouselCard.Controls.Add(_cmbCarouselStyle);
+        cy += 32;
+
         _chkShowCarousel = new CheckBox
         {
             Text = "Show carousel when cycling",
@@ -1128,37 +1714,7 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
         _carouselCard.Controls.Add(_chkShowCarousel);
-        cy += 28;
-
-        Label lblCarouselMotion = new Label
-        {
-            Text = "Carousel Style:",
-            Left = 14,
-            Top = cy + 3,
-            Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
-        };
-        _carouselCard.Controls.Add(lblCarouselMotion);
-
-        _cmbCarouselStyle = new ModernComboBox
-        {
-            Left = 185,
-            Top = cy,
-            Width = 265,
-            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
-            DropDownStyle = ComboBoxStyle.DropDownList
-        };
-        _cmbCarouselStyle.Items.AddRange(new object[] { "3D Floating Pills", "Fluid Moving Deck" });
-        _cmbCarouselStyle.SelectedItem = _draftSettings.CarouselMotionStyle;
-        if (_cmbCarouselStyle.SelectedIndex == -1) _cmbCarouselStyle.SelectedIndex = 0;
-        _cmbCarouselStyle.SelectedIndexChanged += (s, e) =>
-        {
-            _draftSettings.CarouselMotionStyle = _cmbCarouselStyle.SelectedItem?.ToString() ?? "3D Floating Pills";
-            MarkDirty();
-            PushLivePreviewIfActive();
-        };
-        _carouselCard.Controls.Add(_cmbCarouselStyle);
-        cy += 30;
+        cy += 26;
 
         _chkEnableAnimations = new CheckBox
         {
@@ -1167,7 +1723,7 @@ public class SettingsForm : Form
             Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
             Left = 14,
             Top = cy,
-            Width = 210,
+            Width = 165,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1184,9 +1740,9 @@ public class SettingsForm : Form
             Text = "Carousel backdrop",
             Checked = _draftSettings.CarouselBackgroundEnabled,
             Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
-            Left = 230,
+            Left = 185,
             Top = cy,
-            Width = 210,
+            Width = 265,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1217,9 +1773,10 @@ public class SettingsForm : Form
         {
             Text = "Screen Position:",
             Left = 14,
-            Top = ay + 3,
+            Top = ay + 4,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _layoutCard.Controls.Add(lblPos);
 
@@ -1239,7 +1796,7 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
         _layoutCard.Controls.Add(_cmbPosition);
-        ay += 30;
+        ay += 32;
 
         CheckBox chkFollowMonitor = new CheckBox
         {
@@ -1254,12 +1811,12 @@ public class SettingsForm : Form
         _layoutCard.Controls.Add(chkFollowMonitor);
         ay += 28;
 
-        Panel monitorRowsPanel = new Panel
+        _monitorRowsPanel = new Panel
         {
             Left = 14,
             Top = ay,
             Width = 436,
-            AutoSize = true,
+            AutoSize = false,
             Enabled = !_draftSettings.FollowActiveMonitor
         };
 
@@ -1297,7 +1854,7 @@ public class SettingsForm : Form
             {
                 Left = 236,
                 Top = my,
-                Width = 198,
+                Width = 200,
                 Enabled = existingCfg.Enabled,
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
@@ -1320,18 +1877,18 @@ public class SettingsForm : Form
                 PushLivePreviewIfActive();
             };
 
-            monitorRowsPanel.Controls.Add(chkMon);
-            monitorRowsPanel.Controls.Add(cmbMonPos);
+            _monitorRowsPanel.Controls.Add(chkMon);
+            _monitorRowsPanel.Controls.Add(cmbMonPos);
             my += 30;
         }
-        monitorRowsPanel.Height = Math.Max(30, my);
-        _layoutCard.Controls.Add(monitorRowsPanel);
-        ay += monitorRowsPanel.Height + 6;
+        _monitorRowsPanel.Height = Math.Max(30, my);
+        _layoutCard.Controls.Add(_monitorRowsPanel);
+        ay += _monitorRowsPanel.Height + 6;
 
         chkFollowMonitor.CheckedChanged += (s, e) =>
         {
             _draftSettings.FollowActiveMonitor = chkFollowMonitor.Checked;
-            monitorRowsPanel.Enabled = !chkFollowMonitor.Checked;
+            _monitorRowsPanel.Enabled = !chkFollowMonitor.Checked;
             MarkDirty();
             PushLivePreviewIfActive();
         };
@@ -1342,7 +1899,8 @@ public class SettingsForm : Form
             Left = 14,
             Top = ay + 3,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _layoutCard.Controls.Add(lblSize);
 
@@ -1351,7 +1909,7 @@ public class SettingsForm : Form
             Text = _draftSettings.OverlayWidth.ToString(),
             Left = 185,
             Top = ay,
-            Width = 80,
+            Width = 90,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
@@ -1366,9 +1924,11 @@ public class SettingsForm : Form
         Label lblBy = new Label
         {
             Text = "×",
-            Left = 270,
+            Left = 280,
             Top = ay + 3,
-            Width = 16,
+            Width = 18,
+            Height = 20,
+            TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Color.FromArgb(180, 180, 180)
         };
         _layoutCard.Controls.Add(lblBy);
@@ -1376,9 +1936,9 @@ public class SettingsForm : Form
         _txtHeight = new TextBox
         {
             Text = _draftSettings.OverlayHeight.ToString(),
-            Left = 288,
+            Left = 302,
             Top = ay,
-            Width = 80,
+            Width = 90,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
@@ -1397,7 +1957,8 @@ public class SettingsForm : Form
             Left = 14,
             Top = ay + 3,
             Width = 165,
-            ForeColor = Color.FromArgb(200, 200, 200)
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
         _layoutCard.Controls.Add(lblDur);
 
@@ -1406,7 +1967,7 @@ public class SettingsForm : Form
             Text = _draftSettings.PopupDurationMs.ToString(),
             Left = 185,
             Top = ay,
-            Width = 80,
+            Width = 90,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
@@ -1418,7 +1979,7 @@ public class SettingsForm : Form
         page.InnerControls.Add(_layoutCard);
         y = _layoutCard.Bottom + 10;
 
-        // 5. Audio & System Behavior Card
+        // 5. Audio & System Behavior Card (Cleanly aligned 2-column grid)
         _behaviorCard = new Win11CardPanel
         {
             Left = 18,
@@ -1435,6 +1996,7 @@ public class SettingsForm : Form
             Left = 14,
             Top = by + 3,
             Width = 165,
+            Height = 20,
             ForeColor = Color.FromArgb(205, 205, 205)
         };
         _behaviorCard.Controls.Add(lblStep);
@@ -1444,7 +2006,7 @@ public class SettingsForm : Form
             Text = _draftSettings.StepSize.ToString(),
             Left = 185,
             Top = by,
-            Width = 80,
+            Width = 90,
             BackColor = Color.FromArgb(48, 48, 48),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle
@@ -1453,13 +2015,39 @@ public class SettingsForm : Form
         _behaviorCard.Controls.Add(_txtStepSize);
         by += 30;
 
+        Label lblSpeed = new Label
+        {
+            Text = "Animation Speed (5 - 100):",
+            Left = 14,
+            Top = by + 3,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _behaviorCard.Controls.Add(lblSpeed);
+
+        _txtInterpSpeed = new TextBox
+        {
+            Text = _draftSettings.InterpolationSpeed.ToString(),
+            Left = 185,
+            Top = by,
+            Width = 90,
+            Enabled = _draftSettings.EnableInterpolation,
+            BackColor = Color.FromArgb(48, 48, 48),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _txtInterpSpeed.TextChanged += (s, e) => MarkDirty();
+        _behaviorCard.Controls.Add(_txtInterpSpeed);
+        by += 30;
+
         _chkInterpolation = new CheckBox
         {
             Text = "Smooth animation",
             Checked = _draftSettings.EnableInterpolation,
             Left = 14,
-            Top = by + 2,
-            Width = 165,
+            Top = by,
+            Width = 430,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -1470,32 +2058,7 @@ public class SettingsForm : Form
             PushLivePreviewIfActive();
         };
         _behaviorCard.Controls.Add(_chkInterpolation);
-
-        Label lblSpeed = new Label
-        {
-            Text = "Speed (5-100):",
-            Left = 185,
-            Top = by + 3,
-            Width = 90,
-            Height = 20,
-            ForeColor = Color.FromArgb(200, 200, 200)
-        };
-        _behaviorCard.Controls.Add(lblSpeed);
-
-        _txtInterpSpeed = new TextBox
-        {
-            Text = _draftSettings.InterpolationSpeed.ToString(),
-            Left = 280,
-            Top = by + 1,
-            Width = 65,
-            Enabled = _draftSettings.EnableInterpolation,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        _txtInterpSpeed.TextChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_txtInterpSpeed);
-        by += 28;
+        by += 26;
 
         _chkBuffer = new CheckBox
         {
@@ -1583,28 +2146,16 @@ public class SettingsForm : Form
     {
         _detectedAudio = AudioProcessDetector.Scan();
         RefreshGroupsTabUI();
-
         PopulateCycleListUI();
 
-        int k1 = settings.CrossfadeKeyUp;
-        int k2 = settings.CrossfadeKeyDown;
-        int k3 = settings.CrossfadeKeyMute;
+        _kbKey1.Binding = settings.CrossfadeKeyUp;
+        _kbKey2.Binding = settings.CrossfadeKeyDown;
+        _kbKey3.Binding = settings.CrossfadeKeyMute;
+        _cmbGlobalMuteMode.SelectedItem = settings.GlobalMuteMode;
+        if (_cmbGlobalMuteMode.SelectedIndex == -1) _cmbGlobalMuteMode.SelectedIndex = 0;
 
-        _txtKey1.Text = KeybindHelper.FormatKeybind(k1);
-        _txtKey1.Tag = k1;
-
-        _txtKey2.Text = KeybindHelper.FormatKeybind(k2);
-        _txtKey2.Tag = k2;
-
-        _txtKey3.Text = KeybindHelper.FormatKeybind(k3);
-        _txtKey3.Tag = k3;
-
-        int nextKey = settings.GetEffectiveCycleNextKey();
-        _txtKeyCycleNext.Text = KeybindHelper.FormatKeybind(nextKey);
-        _txtKeyCycleNext.Tag = nextKey;
-
-        _txtKeyCyclePrev.Text = KeybindHelper.FormatKeybind(settings.CyclePrevKey);
-        _txtKeyCyclePrev.Tag = settings.CyclePrevKey;
+        _kbKeyCycleNext.Binding = settings.GetEffectiveCycleNextKey();
+        _kbKeyCyclePrev.Binding = settings.CyclePrevKey;
 
         _txtStepSize.Text = settings.StepSize.ToString();
         _chkBuffer.Checked = settings.EnableEqualizationBuffer;
@@ -1855,7 +2406,7 @@ public class SettingsForm : Form
             Text = text,
             Left = left,
             Top = top,
-            Width = 350,
+            Width = 380,
             Height = 19,
             Font = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(96, 205, 255)
@@ -1879,41 +2430,20 @@ public class SettingsForm : Form
         return lbl;
     }
 
-    private (TextBox txt, ModernButton btn) AddKeyBindControls(Control parent, ref int top, Action<int>? onCustomCommit, bool allowClear = false)
+    private KeybindBox AddKeybindBoxControl(Control parent, int left, int width, ref int top, Action<int> onCommit)
     {
-        int txtWidth = allowClear ? 162 : 196;
-        TextBox txt = new TextBox
+        KeybindBox kb = new KeybindBox
         {
-            Left = 148,
-            Top = top,
-            Width = txtWidth,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle,
-            ReadOnly = true,
-            TextAlign = HorizontalAlignment.Center
+            Left = left,
+            Top = top - 1,
+            Width = width,
+            Height = 25
         };
-        parent.Controls.Add(txt);
+        kb.Click += (s, e) => StartRecording(kb, onCommit);
+        parent.Controls.Add(kb);
 
-        ModernButton btnRecord = CreateModernButton("Bind Key", 352, top - 1, 102, 25, false);
-        btnRecord.Click += (s, e) => StartRecording(btnRecord, txt, onCustomCommit);
-        parent.Controls.Add(btnRecord);
-
-        if (allowClear)
-        {
-            ModernButton btnClear = CreateModernButton("✕", 314, top - 1, 32, 25, false);
-            btnClear.Click += (s, e) =>
-            {
-                txt.Tag = 0;
-                txt.Text = "None";
-                onCustomCommit?.Invoke(0);
-                MarkDirty();
-            };
-            parent.Controls.Add(btnClear);
-        }
-
-        top += 32;
-        return (txt, btnRecord);
+        top += 30;
+        return kb;
     }
 
     private RoundedColorSwatch AddColorPickerRow(Control parent, string labelText, string initialHex, Action<string> onColorChanged, ref int top)
@@ -1958,11 +2488,15 @@ public class SettingsForm : Form
 
     private void SettingsForm_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (!_isRecording) return;
+        if (!_isRecording || _activeKeybindBox == null) return;
 
+        // Pressing Esc clears the keybind
         if (e.KeyCode == Keys.Escape)
         {
-            CancelRecording();
+            _activeKeybindBox.Binding = 0;
+            _activeKeyCommitCallback?.Invoke(0);
+            MarkDirty();
+            StopRecording();
             e.Handled = true;
             e.SuppressKeyPress = true;
             return;
@@ -1973,25 +2507,17 @@ public class SettingsForm : Form
             e.KeyCode == Keys.LShiftKey || e.KeyCode == Keys.RShiftKey ||
             e.KeyCode == Keys.LMenu || e.KeyCode == Keys.RMenu)
         {
-            if (_activeTargetTextBox != null)
-            {
-                _activeTargetTextBox.Text = KeybindHelper.FormatLiveModifiers(e.Modifiers);
-            }
+            _activeKeybindBox.Text = KeybindHelper.FormatLiveModifiers(e.Modifiers);
+            _activeKeybindBox.Invalidate();
             e.Handled = true;
             e.SuppressKeyPress = true;
             return;
         }
 
         int combinedBinding = KeybindHelper.CreateBinding(e.KeyCode, e.Modifiers);
-        string comboName = KeybindHelper.FormatKeybind(combinedBinding);
-
-        if (_activeTargetTextBox != null)
-        {
-            _activeTargetTextBox.Text = comboName;
-            _activeTargetTextBox.Tag = combinedBinding;
-            _activeKeyCommitCallback?.Invoke(combinedBinding);
-            MarkDirty();
-        }
+        _activeKeybindBox.Binding = combinedBinding;
+        _activeKeyCommitCallback?.Invoke(combinedBinding);
+        MarkDirty();
 
         StopRecording();
         e.Handled = true;
@@ -2000,107 +2526,88 @@ public class SettingsForm : Form
 
     private void SettingsForm_KeyUp(object? sender, KeyEventArgs e)
     {
-        if (!_isRecording || _activeTargetTextBox == null) return;
-        _activeTargetTextBox.Text = KeybindHelper.FormatLiveModifiers(e.Modifiers);
+        if (!_isRecording || _activeKeybindBox == null) return;
+        _activeKeybindBox.Text = KeybindHelper.FormatLiveModifiers(e.Modifiers);
+        _activeKeybindBox.Invalidate();
     }
 
-    private void StartRecording(ModernButton? btn, TextBox targetBox, Action<int>? onCommit = null)
+    private void StartRecording(KeybindBox targetBox, Action<int>? onCommit = null)
     {
+        if (_isRecording && _activeKeybindBox == targetBox)
+        {
+            CancelRecording();
+            return;
+        }
+
         if (_isRecording) CancelRecording();
         _isRecording = true;
-        _activeRecordButton = btn;
-        _activeTargetTextBox = targetBox;
+        _activeKeybindBox = targetBox;
         _activeKeyCommitCallback = onCommit;
-        _previousTextBoxText = targetBox.Text;
 
-        targetBox.Text = "Press keys...";
-        if (btn != null)
-        {
-            _previousButtonText = btn.Text;
-            btn.Text = "Listening...";
-            btn.BackColor = Color.FromArgb(205, 95, 0);
-            btn.HoverBackColor = Color.FromArgb(220, 110, 15);
-            btn.Invalidate();
-        }
+        targetBox.IsRecording = true;
+        targetBox.Text = "Press keys... (Esc = Clear)";
+        targetBox.Invalidate();
     }
 
     private void StopRecording()
     {
         if (!_isRecording) return;
-        if (_activeRecordButton != null)
+        if (_activeKeybindBox != null)
         {
-            _activeRecordButton.Text = _previousButtonText;
-            _activeRecordButton.BackColor = Color.FromArgb(52, 52, 52);
-            _activeRecordButton.HoverBackColor = Color.FromArgb(66, 66, 66);
-            _activeRecordButton.Invalidate();
+            _activeKeybindBox.IsRecording = false;
         }
         _isRecording = false;
-        _activeRecordButton = null;
-        _activeTargetTextBox = null;
+        _activeKeybindBox = null;
         _activeKeyCommitCallback = null;
     }
 
     private void CancelRecording()
     {
         if (!_isRecording) return;
-        if (_activeTargetTextBox != null)
-        {
-            _activeTargetTextBox.Text = _previousTextBoxText;
-        }
         StopRecording();
     }
 
     private class KeyCaptureFilter : IMessageFilter
     {
-        private readonly Action _onMouseClick;
-        public KeyCaptureFilter(Action onMouseClick) => _onMouseClick = onMouseClick;
+        private readonly SettingsForm _form;
+        public KeyCaptureFilter(SettingsForm form) => _form = form;
 
         public bool PreFilterMessage(ref Message m)
         {
-            if (m.Msg == 0x0201 || m.Msg == 0x0204) _onMouseClick();
+            if ((m.Msg == 0x0201 || m.Msg == 0x0204) && _form._isRecording)
+            {
+                Control? clicked = Control.FromHandle(m.HWnd);
+                if (clicked != _form._activeKeybindBox)
+                {
+                    _form.CancelRecording();
+                }
+            }
             return false;
         }
     }
 
-    private void SaveChanges()
+    private bool ValidateAndNormalizePairList(List<CrossfadeCyclePair> list, string listDisplayName)
     {
-        if (_draftSettings.CrossfadeCycleList.Count == 0)
+        for (int i = 0; i < list.Count; i++)
         {
-            MessageBox.Show("You must have at least one crossfade pair configured.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        _draftSettings.Source1 = _draftSettings.CrossfadeCycleList[0].Source1;
-        _draftSettings.Source1Color = _draftSettings.CrossfadeCycleList[0].Color1Hex;
-        _draftSettings.Source2 = _draftSettings.CrossfadeCycleList[0].Source2;
-        _draftSettings.Source2Color = _draftSettings.CrossfadeCycleList[0].Color2Hex;
-
-        int cfUp = (int)(_txtKey1.Tag ?? 0);
-        int cfDown = (int)(_txtKey2.Tag ?? 0);
-        int cfMute = (int)(_txtKey3.Tag ?? 0);
-        int cycleNextVal = (int)(_txtKeyCycleNext.Tag ?? 0);
-        int cyclePrevVal = (int)(_txtKeyCyclePrev.Tag ?? 0);
-
-        for (int i = 0; i < _draftSettings.CrossfadeCycleList.Count; i++)
-        {
-            var pair = _draftSettings.CrossfadeCycleList[i];
+            var pair = list[i];
             if (!string.IsNullOrWhiteSpace(pair.Source1) && !pair.Source1.StartsWith("Group: ", StringComparison.OrdinalIgnoreCase))
             {
                 pair.Source1 = AppSettings.NormalizeExeName(pair.Source1);
                 _draftSettings.RecordProgramHistory(pair.Source1);
             }
-            if (!string.IsNullOrWhiteSpace(pair.Source2) && !pair.Source2.StartsWith("Group: ", StringComparison.OrdinalIgnoreCase))
+            if (!pair.IsSingleMode && !string.IsNullOrWhiteSpace(pair.Source2) && !pair.Source2.StartsWith("Group: ", StringComparison.OrdinalIgnoreCase))
             {
                 pair.Source2 = AppSettings.NormalizeExeName(pair.Source2);
                 _draftSettings.RecordProgramHistory(pair.Source2);
             }
 
-            if (!string.IsNullOrWhiteSpace(pair.Source1) && !string.IsNullOrWhiteSpace(pair.Source2))
+            if (!pair.IsSingleMode && !string.IsNullOrWhiteSpace(pair.Source1) && !string.IsNullOrWhiteSpace(pair.Source2))
             {
                 if (pair.Source1.Equals(pair.Source2, StringComparison.OrdinalIgnoreCase))
                 {
-                    MessageBox.Show($"Crossfade Cycle Pair #{i + 1} has the same source ({pair.Source1}) on both sides.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    MessageBox.Show($"{listDisplayName} #{i + 1} has the same source ({pair.Source1}) on both sides.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
                 }
 
                 var pairOverlaps = _draftSettings.GetOverlappingExecutables(pair.Source1, pair.Source2);
@@ -2108,14 +2615,34 @@ public class SettingsForm : Form
                 {
                     string dupList = string.Join("\n• ", pairOverlaps);
                     MessageBox.Show(
-                        $"Crossfade Cycle Pair #{i + 1} ({pair.Source1} ⇄ {pair.Source2}) contains duplicate software on both sides:\n\n• {dupList}",
-                        "Duplicate Software in Cycle Pair",
+                        $"{listDisplayName} #{i + 1} ({pair.Source1} ⇄ {pair.Source2}) contains duplicate software on both sides:\n\n• {dupList}",
+                        "Duplicate Software in Source Pair",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
-                    return;
+                    return false;
                 }
             }
         }
+        return true;
+    }
+
+    private void SaveChanges()
+    {
+        if (_draftSettings.CrossfadeCycleList.Count == 0 && _draftSettings.StandalonePairs.Count == 0)
+        {
+            MessageBox.Show("You must have at least one source pair configured.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!ValidateAndNormalizePairList(_draftSettings.CrossfadeCycleList, "Carousel Pair")) return;
+        if (!ValidateAndNormalizePairList(_draftSettings.StandalonePairs, "Standalone Pair")) return;
+
+        var defaultActivePair = _draftSettings.CrossfadeCycleList.FirstOrDefault() ?? _draftSettings.StandalonePairs.First();
+        _draftSettings.Source1 = defaultActivePair.Source1;
+        _draftSettings.Source1Color = defaultActivePair.Color1Hex;
+        _draftSettings.Source2 = defaultActivePair.IsSingleMode ? "" : defaultActivePair.Source2;
+        _draftSettings.Source2Color = defaultActivePair.Color2Hex;
+        _draftSettings.ActiveControlMode = defaultActivePair.ControlMode;
 
         foreach (var group in _draftSettings.Groups)
         {
@@ -2133,13 +2660,14 @@ public class SettingsForm : Form
 
         int ParseInt(string text, int defaultVal) => int.TryParse(text, out int val) ? val : defaultVal;
 
-        _draftSettings.CycleNextKey = cycleNextVal;
-        _draftSettings.QuickSwapKey = cycleNextVal;
-        _draftSettings.CyclePrevKey = cyclePrevVal;
+        _draftSettings.CycleNextKey = _kbKeyCycleNext.Binding;
+        _draftSettings.QuickSwapKey = _kbKeyCycleNext.Binding;
+        _draftSettings.CyclePrevKey = _kbKeyCyclePrev.Binding;
         _draftSettings.RunOnStartup = _chkStartup.Checked;
-        _draftSettings.CrossfadeKeyUp = cfUp;
-        _draftSettings.CrossfadeKeyDown = cfDown;
-        _draftSettings.CrossfadeKeyMute = cfMute;
+        _draftSettings.GlobalMuteMode = _cmbGlobalMuteMode.SelectedItem?.ToString() ?? "Cycle R → L";
+        _draftSettings.CrossfadeKeyUp = _kbKey1.Binding;
+        _draftSettings.CrossfadeKeyDown = _kbKey2.Binding;
+        _draftSettings.CrossfadeKeyMute = _kbKey3.Binding;
         _draftSettings.KeepOverlayOnWhileSettingsOpen = _chkKeepOverlayAlwaysOn.Checked;
         _draftSettings.OverlayPosition = _cmbPosition.SelectedItem?.ToString() ?? "Bottom Center";
         _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration.Text, 2500), 500, 10000);

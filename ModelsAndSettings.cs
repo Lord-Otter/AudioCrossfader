@@ -47,9 +47,21 @@ public class MonitorOverlayConfig
 public class CrossfadeCyclePair
 {
     public string Source1 { get; set; } = "";
-    public string Color1Hex { get; set; } = "#1B3B5A";
+    public string Color1Hex { get; set; } = "#0E0466";
     public string Source2 { get; set; } = "";
-    public string Color2Hex { get; set; } = "#4A2040";
+    public string Color2Hex { get; set; } = "#68021C";
+
+    public string MuteMode { get; set; } = "Use Global";
+    public bool UseCustomKeybinds { get; set; } = false;
+    public int KeyUp { get; set; } = 0;
+    public int KeyDown { get; set; } = 0;
+    public int KeyMute { get; set; } = 0;
+
+    public string ControlMode { get; set; } = "Crossfade";
+    public bool InvertDirection { get; set; } = false;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsSingleMode => string.Equals(ControlMode, "Standard Volume", StringComparison.OrdinalIgnoreCase);
 
     public CrossfadeCyclePair Clone()
     {
@@ -58,7 +70,14 @@ public class CrossfadeCyclePair
             Source1 = this.Source1,
             Color1Hex = this.Color1Hex,
             Source2 = this.Source2,
-            Color2Hex = this.Color2Hex
+            Color2Hex = this.Color2Hex,
+            MuteMode = this.MuteMode,
+            UseCustomKeybinds = this.UseCustomKeybinds,
+            KeyUp = this.KeyUp,
+            KeyDown = this.KeyDown,
+            KeyMute = this.KeyMute,
+            ControlMode = this.ControlMode,
+            InvertDirection = this.InvertDirection
         };
     }
 }
@@ -71,8 +90,12 @@ public readonly struct CycleDisplayItem
     public string Label2 { get; }
     public string RawSource2 { get; }
     public string Color2Hex { get; }
+    public bool IsSingleSource { get; }
 
-    public CycleDisplayItem(string label1, string rawSource1, string color1Hex, string label2, string rawSource2, string color2Hex)
+    public CycleDisplayItem(
+        string label1, string rawSource1, string color1Hex,
+        string label2, string rawSource2, string color2Hex,
+        bool isSingleSource = false)
     {
         Label1 = label1;
         RawSource1 = rawSource1;
@@ -80,6 +103,7 @@ public readonly struct CycleDisplayItem
         Label2 = label2;
         RawSource2 = rawSource2;
         Color2Hex = color2Hex;
+        IsSingleSource = isSingleSource;
     }
 }
 
@@ -137,7 +161,7 @@ public static class KeybindHelper
         if ((modifiers & Keys.Control) == Keys.Control) parts.Add("Ctrl");
         if ((modifiers & Keys.Alt) == Keys.Alt) parts.Add("Alt");
         if ((modifiers & Keys.Shift) == Keys.Shift) parts.Add("Shift");
-        if (parts.Count == 0) return "Press keys...";
+        if (parts.Count == 0) return "Press keys... (Esc = Clear)";
         return string.Join(" + ", parts) + " + ...";
     }
 }
@@ -155,15 +179,19 @@ public class AppSettings
     public List<MonitorOverlayConfig> MonitorConfigs { get; set; } = new List<MonitorOverlayConfig>();
 
     public List<ProgramGroup> Groups { get; set; } = new List<ProgramGroup>();
+
     public List<CrossfadeCyclePair> CrossfadeCycleList { get; set; } = new List<CrossfadeCyclePair>
     {
         new CrossfadeCyclePair { Source1 = "chrome.exe", Color1Hex = "#1B3B5A", Source2 = "firefox.exe", Color2Hex = "#4A2040" }
     };
 
+    public List<CrossfadeCyclePair> StandalonePairs { get; set; } = new List<CrossfadeCyclePair>();
+
     public List<string> RecentPrograms { get; set; } = new List<string> { "chrome.exe", "firefox.exe" };
     public Dictionary<string, string> KnownExecutablePaths { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     public bool RunOnStartup { get; set; } = false;
 
+    public string GlobalMuteMode { get; set; } = "Cycle R → L";
     public int CrossfadeKeyUp { get; set; } = 0x7E;    // VK_F15
     public int CrossfadeKeyMute { get; set; } = 0x7F;  // VK_F16
     public int CrossfadeKeyDown { get; set; } = 0x80;  // VK_F17
@@ -200,6 +228,13 @@ public class AppSettings
 
     public int GetEffectiveCycleNextKey() => CycleNextKey != 0 ? CycleNextKey : QuickSwapKey;
 
+    public string ActiveControlMode { get; set; } = "Crossfade";
+
+    public IEnumerable<CrossfadeCyclePair> GetAllConfiguredPairs()
+    {
+        return CrossfadeCycleList.Concat(StandalonePairs);
+    }
+
     public AppSettings Clone()
     {
         return new AppSettings
@@ -210,9 +245,11 @@ public class AppSettings
             Source2Color = this.Source2Color,
             Groups = this.Groups.Select(g => g.Clone()).ToList(),
             CrossfadeCycleList = this.CrossfadeCycleList.Select(c => c.Clone()).ToList(),
+            StandalonePairs = this.StandalonePairs.Select(c => c.Clone()).ToList(),
             RecentPrograms = new List<string>(this.RecentPrograms),
             KnownExecutablePaths = new Dictionary<string, string>(this.KnownExecutablePaths, StringComparer.OrdinalIgnoreCase),
             RunOnStartup = this.RunOnStartup,
+            GlobalMuteMode = this.GlobalMuteMode,
             CrossfadeKeyUp = this.CrossfadeKeyUp,
             CrossfadeKeyMute = this.CrossfadeKeyMute,
             CrossfadeKeyDown = this.CrossfadeKeyDown,
@@ -242,6 +279,7 @@ public class AppSettings
             OverlayLevelMode = this.OverlayLevelMode,
             FollowActiveMonitor = this.FollowActiveMonitor,
             MonitorConfigs = this.MonitorConfigs.Select(m => m.Clone()).ToList(),
+            ActiveControlMode = this.ActiveControlMode
         };
     }
 
