@@ -96,8 +96,8 @@ public class SettingsForm : Form
         return (scr.Bounds.Width, scr.Bounds.Height);
     }
 
-    private const int CarouselPairCardHeight = 100;
-    private const int StandalonePairCardHeight = 176;
+    private const int CarouselPairCardHeight = 104; // Increased by 4px for breathing room
+    private const int StandalonePairCardHeight = 180;
 
     private static readonly object[] GlobalMuteModeOptions = new object[]
     {
@@ -295,72 +295,6 @@ public class SettingsForm : Form
         }
         catch { }
     }
-
-    /*private void HandleWindowResize()
-    {
-        if (_pillTrack == null) return;
-
-        int clientW = this.ClientSize.Width;
-        int viewportW = Math.Max(496, clientW - 14);
-        int cardW = Math.Max(468, viewportW - 28);
-
-        int effectiveBarW = Math.Max(468, clientW - 36);
-        _pillTrack.Width = effectiveBarW;
-
-        int tabGap = 4;
-        int availW = effectiveBarW - 8 - (tabGap * 2);
-        int tab1W = availW / 3;
-        int tab2W = availW / 3;
-        int tab3W = availW - tab1W - tab2W;
-
-        _navBtnGeneral.Left = 4; _navBtnGeneral.Width = tab1W;
-        _navBtnGroups.Left = _navBtnGeneral.Right + tabGap; _navBtnGroups.Width = tab2W;
-        _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap; _navBtnPersonalization.Width = tab3W;
-
-        if (_btnSave != null && _btnRevert != null && _lblStatus != null)
-        {
-            _lblStatus.Width = effectiveBarW;
-            _btnSave.Left = Math.Max(_btnRevert.Right + 12, clientW - 18 - _btnSave.Width);
-        }
-
-        if (_cycleListCard != null)
-        {
-            _cycleListCard.Width = cardW;
-            _btnAddCycleEntry.Left = cardW - 14 - _btnAddCycleEntry.Width;
-            _cycleSlotsHost.Width = cardW - 24;
-
-            if (_globalKeysHost != null)
-            {
-                _globalKeysHost.Width = cardW - 24;
-                int kbWidth = Math.Max(220, _globalKeysHost.Width - 142);
-                if (_kbKey1 != null) _kbKey1.Width = kbWidth;
-                if (_kbKey2 != null) _kbKey2.Width = kbWidth;
-                if (_kbKey3 != null) _kbKey3.Width = kbWidth;
-                if (_cmbGlobalMuteMode != null) _cmbGlobalMuteMode.Width = kbWidth;
-                if (_kbKeyCycleNext != null) _kbKeyCycleNext.Width = kbWidth;
-                if (_kbKeyCyclePrev != null) _kbKeyCyclePrev.Width = kbWidth;
-            }
-        }
-
-        if (_standaloneListCard != null)
-        {
-            _standaloneListCard.Width = cardW;
-            _btnAddStandaloneEntry.Left = cardW - 14 - _btnAddStandaloneEntry.Width;
-            _standaloneSlotsHost.Width = cardW - 24;
-        }
-
-        if (!_isInitializing)
-        {
-            ResizeExistingPairCards(_cycleSlotsHost);
-            ResizeExistingPairCards(_standaloneSlotsHost);
-            ResizeExistingGroupCards(cardW);
-            StretchPersonalizationControls(cardW);
-
-            ReflowGeneralPage();
-            ReflowPersonalizationPage();
-            _pageGroups?.RecalculateScroll();
-        }
-    }*/
 
     private void HandleWindowResize()
     {
@@ -594,6 +528,11 @@ public class SettingsForm : Form
     {
         if (_tabStateMachine != null) return;
 
+        // Ensure all pages start in a known visibility state before the first transition
+        _pageGeneral.Visible = true;
+        _pageGroups.Visible = false;
+        _pagePersonalization.Visible = false;
+
         _tabStateMachine = new StateMachine<SettingsTabState>(SettingsTabState.Sources);
 
         _tabStateMachine.ConfigureState(
@@ -601,9 +540,16 @@ public class SettingsForm : Form
             onEnter: () =>
             {
                 _activeTabIndex = 0;
+                _pageGroups.Visible = false;
+                _pagePersonalization.Visible = false;
                 _pageGeneral.Visible = true;
+                _pageGeneral.BringToFront();
+
                 StyleNavButton(_navBtnGeneral, true);
-                AnimateNavPillTo(_navBtnGeneral);
+                StyleNavButton(_navBtnGroups, false);
+                StyleNavButton(_navBtnPersonalization, false);
+                AnimateNavPillTo(_navBtnGeneral, immediate: _isInitializing);
+
                 ResizeExistingPairCards(_cycleSlotsHost);
                 ResizeExistingPairCards(_standaloneSlotsHost);
                 ReflowGeneralPage();
@@ -619,9 +565,16 @@ public class SettingsForm : Form
             onEnter: () =>
             {
                 _activeTabIndex = 1;
+                _pageGeneral.Visible = false;
+                _pagePersonalization.Visible = false;
                 _pageGroups.Visible = true;
+                _pageGroups.BringToFront();
+
+                StyleNavButton(_navBtnGeneral, false);
                 StyleNavButton(_navBtnGroups, true);
-                AnimateNavPillTo(_navBtnGroups);
+                StyleNavButton(_navBtnPersonalization, false);
+                AnimateNavPillTo(_navBtnGroups, immediate: _isInitializing);
+
                 int cardW = Math.Max(468, ClientSize.Width - 36);
                 ResizeExistingGroupCards(cardW);
                 _pageGroups.RecalculateScroll();
@@ -637,9 +590,16 @@ public class SettingsForm : Form
             onEnter: () =>
             {
                 _activeTabIndex = 2;
+                _pageGeneral.Visible = false;
+                _pageGroups.Visible = false;
                 _pagePersonalization.Visible = true;
+                _pagePersonalization.BringToFront();
+
+                StyleNavButton(_navBtnGeneral, false);
+                StyleNavButton(_navBtnGroups, false);
                 StyleNavButton(_navBtnPersonalization, true);
-                AnimateNavPillTo(_navBtnPersonalization);
+                AnimateNavPillTo(_navBtnPersonalization, immediate: _isInitializing);
+
                 int cardW = Math.Max(468, ClientSize.Width - 36);
                 StretchPersonalizationControls(cardW);
                 ReflowPersonalizationPage();
@@ -674,6 +634,7 @@ public class SettingsForm : Form
 
     private void SwitchTab(int index)
     {
+        bool firstInit = (_tabStateMachine == null);
         InitializeTabStateMachine();
         CancelRecording();
         this.ActiveControl = null;
@@ -685,7 +646,7 @@ public class SettingsForm : Form
             _ => SettingsTabState.Sources
         };
 
-        _tabStateMachine.TransitionTo(targetState, force: _isInitializing);
+        _tabStateMachine.TransitionTo(targetState, force: _isInitializing || firstInit);
     }
 
     private void StyleNavButton(ModernButton btn, bool active)
@@ -787,7 +748,7 @@ public class SettingsForm : Form
         _btnRevert.Click += (s, e) => RevertChanges();
         bottomPanel.Controls.Add(_btnRevert);
 
-        _btnSave = CreateModernButton("Save & Apply", 302, 29, 184, 33, true);
+        _btnSave = CreateModernButton("Save && Apply", 302, 29, 184, 33, true);
         _btnSave.Click += (s, e) => SaveChanges();
         bottomPanel.Controls.Add(_btnSave);
 
@@ -937,7 +898,7 @@ public class SettingsForm : Form
 
         _lblCycleCardTitle = new Label
         {
-            Text = "Carousel Pairs & Global Hotkeys",
+            Text = "Carousel Pairs && Global Hotkeys",
             Left = 14,
             Top = 12,
             Width = 290,
@@ -963,24 +924,24 @@ public class SettingsForm : Form
         };
         _cycleListCard.Controls.Add(_btnAddCycleEntry);
 
-        _cycleSlotsHost = new Panel
+        _cycleSlotsHost = new BufferedPanel
         {
             Left = 12,
             Top = 42,
             Width = 444,
             Height = 0,
-            BackColor = Color.Transparent
+            BackColor = Color.FromArgb(39, 39, 39)
         };
         _cycleListCard.Controls.Add(_cycleSlotsHost);
 
         // Global Hotkeys section embedded inside the Carousel Pairs card
-        _globalKeysHost = new Panel
+        _globalKeysHost = new BufferedPanel
         {
             Left = 12,
             Top = 42,
             Width = 444,
             Height = 212,
-            BackColor = Color.Transparent
+            BackColor = Color.FromArgb(39, 39, 39)
         };
         _globalKeysHost.Paint += (s, e) =>
         {
@@ -1074,13 +1035,13 @@ public class SettingsForm : Form
         };
         _standaloneListCard.Controls.Add(_btnAddStandaloneEntry);
 
-        _standaloneSlotsHost = new Panel
+        _standaloneSlotsHost = new BufferedPanel
         {
             Left = 12,
             Top = 42,
             Width = 444,
             Height = 0,
-            BackColor = Color.Transparent
+            BackColor = Color.FromArgb(39, 39, 39)
         };
         _standaloneListCard.Controls.Add(_standaloneSlotsHost);
         page.InnerControls.Add(_standaloneListCard);
@@ -1097,402 +1058,6 @@ public class SettingsForm : Form
     {
         PopulatePairListHost(_cycleSlotsHost, _draftSettings.CrossfadeCycleList, _draftSettings.StandalonePairs, isCarouselList: true);
         PopulatePairListHost(_standaloneSlotsHost, _draftSettings.StandalonePairs, _draftSettings.CrossfadeCycleList, isCarouselList: false);
-    }
-
-    private void PopulatePairListHost(
-        Panel? host,
-        List<CrossfadeCyclePair> targetList,
-        List<CrossfadeCyclePair> oppositeList,
-        bool isCarouselList)
-    {
-        if (host == null) return;
-        host.SuspendLayout();
-        host.Controls.Clear();
-
-        List<string> options = GetAvailableSourceOptions();
-        int y = 0;
-        int hostW = Math.Max(442, host.Width);
-
-        int comboW = Math.Max(140, hostW - 234);
-        int btnActionLeft = 56 + comboW + 6; // Move & Browse buttons (Width = 94)
-        int btnArrowLeft = btnActionLeft + 94 + 4; // Up & Down arrows (Width = 30)
-        int btnDelLeft = btnArrowLeft + 30 + 4; // 2-Row 'X' button (Width = 32)
-
-        for (int i = 0; i < targetList.Count; i++)
-        {
-            int index = i;
-            var pair = targetList[index];
-            bool isSingle = pair.IsSingleMode;
-
-            int cardH = isCarouselList
-                ? (isSingle ? 68 : CarouselPairCardHeight)
-                : (isSingle ? 144 : StandalonePairCardHeight);
-
-            Win11CardPanel pairCard = new Win11CardPanel
-            {
-                Left = 0,
-                Top = y,
-                Width = hostW,
-                Height = cardH,
-                FillColor = Color.FromArgb(48, 48, 48),
-                BorderColor = Color.FromArgb(66, 66, 66),
-                CornerRadius = 6,
-                Padding = new Padding(0)
-            };
-
-            // --- TOP BLOCK PANEL (Holds Row 1 [Mode] + Row 2 [Source 1] + 2-row tall X button) ---
-            Panel topBlockPanel = new Panel
-            {
-                Left = 2,
-                Top = 4,
-                Width = hostW - 4,
-                Height = 62,
-                BackColor = Color.FromArgb(48, 48, 48),
-                Tag = "TopBlockPanel"
-            };
-
-            // Row 1: Mode Dropdown + Invert Checkbox + Move List Button + Up Arrow
-            Label lblMode = new Label
-            {
-                Text = "Mode:",
-                Left = 6,
-                Top = 6,
-                Width = 46,
-                Height = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            topBlockPanel.Controls.Add(lblMode);
-
-            int invertW = 62;
-            int modeComboW = Math.Max(95, comboW - invertW - 6);
-
-            ModernComboBox cmbMode = new ModernComboBox
-            {
-                Left = 56,
-                Top = 2,
-                Width = modeComboW,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Tag = "ModeCombo"
-            };
-            cmbMode.Items.AddRange(new object[] { "Volume", "Balance", "Crossfade" });
-
-            if (pair.IsSingleMode)
-                cmbMode.SelectedItem = "Volume";
-            else if (pair.IsCrossfadeMode)
-                cmbMode.SelectedItem = "Crossfade";
-            else
-                cmbMode.SelectedItem = "Balance";
-
-            topBlockPanel.Controls.Add(cmbMode);
-
-            CheckBox chkInvert = new CheckBox
-            {
-                Text = "Invert",
-                Checked = pair.InvertDirection,
-                Left = 56 + modeComboW + 6,
-                Top = 4,
-                Width = invertW,
-                Height = 22,
-                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                ForeColor = Color.FromArgb(215, 215, 215),
-                Tag = "InvertChk"
-            };
-            _toolTip.SetToolTip(chkInvert, "Invert Volume Up / Down direction for this pair");
-            chkInvert.CheckedChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.InvertDirection = chkInvert.Checked;
-                MarkDirty();
-            };
-            topBlockPanel.Controls.Add(chkInvert);
-
-            ModernButton btnMoveList = CreateModernButton(isCarouselList ? "To Standalone" : "To Carousel", btnActionLeft, 2, 94, 25, false);
-            btnMoveList.Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold);
-            btnMoveList.Tag = "MoveListBtn";
-            btnMoveList.Click += (s, e) =>
-            {
-                if (_isPairListAnimating) return;
-                AnimateRemovePairCard(host, targetList, index, onComplete: () =>
-                {
-                    pair.UseCustomKeybinds = isCarouselList;
-                    Panel? destHost = isCarouselList ? _standaloneSlotsHost : _cycleSlotsHost;
-                    AnimateAddPairCard(destHost, oppositeList, pair, isCarouselList: !isCarouselList);
-                });
-            };
-            topBlockPanel.Controls.Add(btnMoveList);
-
-            ModernButton btnUp = CreateModernButton("▲", btnArrowLeft, 2, 30, 25, false);
-            btnUp.Tag = "UpBtn";
-            btnUp.Enabled = (index > 0);
-            btnUp.Click += (s, e) =>
-            {
-                if (_isPairListAnimating || index <= 0) return;
-                AnimateSwapPairCards(host, targetList, index, index - 1);
-            };
-            topBlockPanel.Controls.Add(btnUp);
-
-            // Row 2 (y = 34 inside topBlockPanel): Source 1 + Browse + Down Arrow
-            Label lblS1 = new Label
-            {
-                Text = isSingle ? "S:" : "L:",
-                Left = 6,
-                Top = 38,
-                Width = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            topBlockPanel.Controls.Add(lblS1);
-
-            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(26, 35, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
-            topBlockPanel.Controls.Add(swatch1);
-
-            ModernComboBox cmb1 = new ModernComboBox
-            {
-                Left = 56,
-                Top = 35,
-                Width = comboW,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                Tag = "Source1Combo",
-                BadgeResolver = ResolveDropdownBadge,
-                IconResolver = ResolveDropdownIcon
-            };
-            cmb1.Items.AddRange(options.Cast<object>().ToArray());
-            cmb1.SelectedItem = pair.Source1;
-            if (cmb1.SelectedIndex == -1) cmb1.Text = pair.Source1;
-            cmb1.DropDown += (s, e) =>
-            {
-                _detectedAudio = AudioProcessDetector.Scan();
-                PopulateSingleComboOptions(cmb1, includeGroups: true);
-            };
-            cmb1.SelectedIndexChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source1 = ReadComboText(cmb1);
-                MarkDirty();
-                PushLivePreviewIfActive();
-            };
-            cmb1.TextChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source1 = ReadComboText(cmb1);
-                MarkDirty();
-            };
-            topBlockPanel.Controls.Add(cmb1);
-
-            ModernButton btnBrowse1 = CreateModernButton("Browse", btnActionLeft, 34, 94, 25, false);
-            btnBrowse1.Tag = "Browse1Btn";
-            btnBrowse1.Click += (s, e) =>
-            {
-                BrowseForExecutable(cmb1);
-                pair.Source1 = ReadComboText(cmb1);
-                PushLivePreviewIfActive();
-            };
-            topBlockPanel.Controls.Add(btnBrowse1);
-
-            ModernButton btnDown = CreateModernButton("▼", btnArrowLeft, 34, 30, 25, false);
-            btnDown.Tag = "DownBtn";
-            btnDown.Enabled = (index < targetList.Count - 1);
-            btnDown.Click += (s, e) =>
-            {
-                if (_isPairListAnimating || index >= targetList.Count - 1) return;
-                AnimateSwapPairCards(host, targetList, index, index + 1);
-            };
-            topBlockPanel.Controls.Add(btnDown);
-
-            // Tall 2-Row Delete ('X') Button spanning Row 1 and Row 2
-            int totalPairsCount = _draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count;
-            ModernButton btnDel = CreateModernButton("✕", btnDelLeft, 2, 32, 57, false, isDanger: true);
-            btnDel.Tag = "DeleteBtn";
-            btnDel.Enabled = (totalPairsCount > 1);
-            btnDel.Click += (s, e) =>
-            {
-                if (_isPairListAnimating) return;
-                if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
-                {
-                    MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-                AnimateRemovePairCard(host, targetList, index);
-            };
-            topBlockPanel.Controls.Add(btnDel);
-
-            // --- ROW 3 PANEL (Source 2 + Browse ONLY - slides behind topBlockPanel when in Single Mode) ---
-            Panel row2Panel = new Panel
-            {
-                Left = 2,
-                Top = isSingle ? 34 : 66,
-                Width = hostW - 4,
-                Height = 30,
-                Visible = !isSingle,
-                BackColor = Color.FromArgb(48, 48, 48),
-                Tag = "Row2Panel"
-            };
-
-            Label lblS2 = new Label
-            {
-                Text = "R:",
-                Left = 6,
-                Top = 5,
-                Width = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            row2Panel.Controls.Add(lblS2);
-
-            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(26, 2, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
-            row2Panel.Controls.Add(swatch2);
-
-            ModernComboBox cmb2 = new ModernComboBox
-            {
-                Left = 56,
-                Top = 2,
-                Width = comboW,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                Tag = "Source2Combo",
-                BadgeResolver = ResolveDropdownBadge,
-                IconResolver = ResolveDropdownIcon
-            };
-            cmb2.Items.AddRange(options.Cast<object>().ToArray());
-            cmb2.SelectedItem = pair.Source2;
-            if (cmb2.SelectedIndex == -1) cmb2.Text = pair.Source2;
-            cmb2.DropDown += (s, e) =>
-            {
-                _detectedAudio = AudioProcessDetector.Scan();
-                PopulateSingleComboOptions(cmb2, includeGroups: true);
-            };
-            cmb2.SelectedIndexChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source2 = ReadComboText(cmb2);
-                MarkDirty();
-                PushLivePreviewIfActive();
-            };
-            cmb2.TextChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source2 = ReadComboText(cmb2);
-                MarkDirty();
-            };
-            row2Panel.Controls.Add(cmb2);
-
-            ModernButton btnBrowse2 = CreateModernButton("Browse", btnActionLeft, 1, 94, 25, false);
-            btnBrowse2.Tag = "Browse2Btn";
-            btnBrowse2.Click += (s, e) =>
-            {
-                BrowseForExecutable(cmb2);
-                pair.Source2 = ReadComboText(cmb2);
-                PushLivePreviewIfActive();
-            };
-            row2Panel.Controls.Add(btnBrowse2);
-
-            // --- STANDALONE KEYBINDS PANEL (Only used for Standalone Pairs) ---
-            Panel? bottomPanel = null;
-            if (!isCarouselList)
-            {
-                pair.UseCustomKeybinds = true;
-
-                bottomPanel = new Panel
-                {
-                    Left = 2,
-                    Top = isSingle ? 66 : 98,
-                    Width = hostW - 4,
-                    Height = 74,
-                    BackColor = Color.FromArgb(48, 48, 48),
-                    Tag = "BottomPanel"
-                };
-
-                Label lblMuteMode = new Label
-                {
-                    Text = "Mute:",
-                    Left = 6,
-                    Top = 4,
-                    Width = 46,
-                    Height = 18,
-                    Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(190, 190, 190)
-                };
-                bottomPanel.Controls.Add(lblMuteMode);
-
-                ModernComboBox cmbPairMute = new ModernComboBox
-                {
-                    Left = 56,
-                    Top = 0,
-                    Width = comboW,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Tag = "PairMuteCombo"
-                };
-                cmbPairMute.Items.AddRange(PairMuteModeOptions);
-                cmbPairMute.SelectedItem = string.IsNullOrWhiteSpace(pair.MuteMode) ? "Use Global" : pair.MuteMode;
-                if (cmbPairMute.SelectedIndex == -1) cmbPairMute.SelectedIndex = 0;
-                cmbPairMute.SelectedIndexChanged += (s, e) =>
-                {
-                    if (_isInitializing) return;
-                    pair.MuteMode = cmbPairMute.SelectedItem?.ToString() ?? "Use Global";
-                    MarkDirty();
-                };
-                bottomPanel.Controls.Add(cmbPairMute);
-
-                int rowLeft = 6;
-                int rowRight = btnDelLeft + 32;
-                int totalRowW = rowRight - rowLeft;
-                int colGap = 8;
-                int colW = (totalRowW - (colGap * 2)) / 3;
-
-                // Volume Down before Volume Up
-                AddSideBySideKeybindColumn(bottomPanel, "Fade Left / Down", rowLeft, colW, 28, pair.KeyDown, val => pair.KeyDown = val, 0);
-                AddSideBySideKeybindColumn(bottomPanel, "Fade Right / Up", rowLeft + colW + colGap, colW, 28, pair.KeyUp, val => pair.KeyUp = val, 1);
-                AddSideBySideKeybindColumn(bottomPanel, "Mute Toggle", rowLeft + (colW + colGap) * 2, totalRowW - (colW * 2) - (colGap * 2), 28, pair.KeyMute, val => pair.KeyMute = val, 2);
-
-                pairCard.Controls.Add(bottomPanel);
-            }
-            else
-            {
-                pair.UseCustomKeybinds = false;
-            }
-
-            // Per-Card Finite State Machine for ControlModeState (Volume / Balance / Crossfade)
-            var modeFsm = new StateMachine<ControlModeState>(pair.ModeState);
-            modeFsm.ConfigureState(ControlModeState.Volume, onEnter: () =>
-            {
-                pair.ModeState = ControlModeState.Volume;
-                lblS1.Text = "S:";
-                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, true, isCarouselList);
-            });
-            modeFsm.ConfigureState(ControlModeState.Balance, onEnter: () =>
-            {
-                pair.ModeState = ControlModeState.Balance;
-                lblS1.Text = "L:";
-                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
-            });
-            modeFsm.ConfigureState(ControlModeState.Crossfade, onEnter: () =>
-            {
-                pair.ModeState = ControlModeState.Crossfade;
-                lblS1.Text = "L:";
-                AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
-            });
-
-            cmbMode.SelectedIndexChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                ControlModeState nextMode = ControlModeStateMachine.ParseState(cmbMode.SelectedItem?.ToString());
-                if (modeFsm.TransitionTo(nextMode))
-                {
-                    MarkDirty();
-                    PushLivePreviewIfActive();
-                }
-            };
-
-            pairCard.Controls.Add(row2Panel);
-            pairCard.Controls.Add(topBlockPanel);
-            topBlockPanel.BringToFront(); // Keep topBlockPanel in front so row2Panel slides behind it
-
-            host.Controls.Add(pairCard);
-            y += cardH + 6;
-        }
-
-        host.Height = y;
-        host.ResumeLayout();
     }
 
     private void ResizeExistingPairCards(Panel? host)
@@ -1634,14 +1199,14 @@ public class SettingsForm : Form
 
         int startCardH = pairCard.Height;
         int targetCardH = isCarouselList
-            ? (toSingleMode ? 68 : CarouselPairCardHeight)
-            : (toSingleMode ? 144 : StandalonePairCardHeight);
+            ? (toSingleMode ? 74 : CarouselPairCardHeight)
+            : (toSingleMode ? 150 : StandalonePairCardHeight);
 
         int startRow2Top = row2Panel.Top;
-        int targetRow2Top = toSingleMode ? 34 : 66;
+        int targetRow2Top = toSingleMode ? 32 : 68; // 32 for Volume, 68 for Balance/Crossfade
 
         int startBottomTop = bottomSection?.Top ?? 0;
-        int targetBottomTop = toSingleMode ? 66 : 98;
+        int targetBottomTop = toSingleMode ? 62 : 94; // 62 for Volume, 94 for Balance/Crossfade
 
         row2Panel.Visible = true;
 
@@ -1680,7 +1245,7 @@ public class SettingsForm : Form
             int curY = 0;
             if (pairCard.Parent != null)
             {
-                foreach (Control sibling in pairCard.Parent.Controls)
+                foreach (Control sibling in pairCard.Parent.Controls.Cast<Control>().OrderBy(c => c.Top))
                 {
                     sibling.Top = curY;
                     curY += sibling.Height + 6;
@@ -1692,6 +1257,450 @@ public class SettingsForm : Form
         animTimer.Start();
     }
 
+    private void PopulatePairListHost(
+        Panel? host,
+        List<CrossfadeCyclePair> targetList,
+        List<CrossfadeCyclePair> oppositeList,
+        bool isCarouselList)
+    {
+        if (host == null) return;
+        host.SuspendLayout();
+        host.Controls.Clear();
+
+        List<string> options = GetAvailableSourceOptions();
+        int y = 0;
+        int hostW = Math.Max(442, host.Width);
+
+        for (int i = 0; i < targetList.Count; i++)
+        {
+            var pair = targetList[i];
+            Win11CardPanel pairCard = BuildSinglePairCard(host, pair, targetList, oppositeList, isCarouselList, options, hostW);
+            pairCard.Top = y;
+            host.Controls.Add(pairCard);
+            y += pairCard.Height + 6;
+        }
+
+        host.Height = y;
+        UpdateHostPairButtonsState(host, targetList);
+        host.ResumeLayout();
+    }
+
+    private Win11CardPanel BuildSinglePairCard(
+        Panel host,
+        CrossfadeCyclePair pair,
+        List<CrossfadeCyclePair> targetList,
+        List<CrossfadeCyclePair> oppositeList,
+        bool isCarouselList,
+        List<string> options,
+        int hostW)
+    {
+        bool isSingle = pair.IsSingleMode;
+
+        int comboW = Math.Max(140, hostW - 234);
+        int btnActionLeft = 56 + comboW + 6; // Move & Browse buttons (Width = 94)
+        int btnArrowLeft = btnActionLeft + 94 + 4; // Up & Down arrows (Width = 30)
+        int btnDelLeft = btnArrowLeft + 30 + 4; // 2-Row 'X' button (Width = 32)
+
+        int cardH = isCarouselList
+            ? (isSingle ? 74 : CarouselPairCardHeight) // 74px gives single volume cards a proper bottom margin
+            : (isSingle ? 150 : StandalonePairCardHeight);
+
+        Win11CardPanel pairCard = new Win11CardPanel
+        {
+            Left = 0,
+            Top = 0,
+            Width = hostW,
+            Height = cardH,
+            FillColor = Color.FromArgb(48, 48, 48),
+            BorderColor = Color.FromArgb(66, 66, 66),
+            CornerRadius = 6,
+            Padding = new Padding(0),
+            Tag = pair
+        };
+
+        // --- TOP BLOCK PANEL (Holds Row 1 [Mode] + Row 2 [Source 1] + 2-row tall X button) ---
+            BufferedPanel topBlockPanel = new BufferedPanel
+            {
+                Left = 2,
+                Top = 4,
+                Width = hostW - 4,
+                Height = 62,
+                BackColor = Color.FromArgb(48, 48, 48),
+                Tag = "TopBlockPanel"
+            };
+
+            // Row 1: Mode Dropdown + Invert Checkbox + Move List Button + Up Arrow (Row Center Y = 16)
+            Label lblMode = new Label
+            {
+                Text = "Mode:",
+                Left = 6,
+                Top = 8,
+                Width = 46,
+                Height = 18,
+                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 190, 190)
+            };
+            topBlockPanel.Controls.Add(lblMode);
+
+            int invertW = 62;
+            int modeComboW = Math.Max(95, comboW - invertW - 6);
+
+            ModernComboBox cmbMode = new ModernComboBox
+            {
+                Left = 56,
+                Top = 3, // Centered for 25px height on row 1 (center Y = 15.5)
+                Width = modeComboW,
+                Height = 25,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Tag = "ModeCombo"
+            };
+            cmbMode.Items.AddRange(new object[] { "Volume", "Balance", "Crossfade" });
+
+            if (pair.IsSingleMode)
+                cmbMode.SelectedItem = "Volume";
+            else if (pair.IsCrossfadeMode)
+                cmbMode.SelectedItem = "Crossfade";
+            else
+                cmbMode.SelectedItem = "Balance";
+
+            topBlockPanel.Controls.Add(cmbMode);
+
+            CheckBox chkInvert = new CheckBox
+            {
+                Text = "Invert",
+                Checked = pair.InvertDirection,
+                Left = 56 + modeComboW + 6,
+                Top = 4,
+                Width = invertW,
+                Height = 22,
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                ForeColor = Color.FromArgb(215, 215, 215),
+                Tag = "InvertChk"
+            };
+            _toolTip.SetToolTip(chkInvert, "Invert Volume Up / Down direction for this pair");
+            chkInvert.CheckedChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.InvertDirection = chkInvert.Checked;
+                MarkDirty();
+            };
+            topBlockPanel.Controls.Add(chkInvert);
+
+            ModernButton btnMoveList = CreateModernButton(isCarouselList ? "To Standalone" : "To Carousel", btnActionLeft, 3, 94, 25, false);
+            btnMoveList.Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold);
+            btnMoveList.Tag = "MoveListBtn";
+            btnMoveList.Click += (s, e) =>
+            {
+                if (_isPairListAnimating) return;
+                int index = targetList.IndexOf(pair);
+                if (index < 0) return;
+                AnimateRemovePairCard(host, targetList, index, onComplete: () =>
+                {
+                    pair.UseCustomKeybinds = isCarouselList;
+                    Panel? destHost = isCarouselList ? _standaloneSlotsHost : _cycleSlotsHost;
+                    AnimateAddPairCard(destHost, oppositeList, pair, isCarouselList: !isCarouselList);
+                });
+            };
+            topBlockPanel.Controls.Add(btnMoveList);
+
+            ModernButton btnUp = CreateModernButton("▲", btnArrowLeft, 3, 30, 25, false);
+            btnUp.Tag = "UpBtn";
+            btnUp.Click += (s, e) =>
+            {
+                int curIdx = targetList.IndexOf(pair);
+                if (_isPairListAnimating || curIdx <= 0) return;
+                AnimateSwapPairCards(host, targetList, curIdx, curIdx - 1);
+            };
+            topBlockPanel.Controls.Add(btnUp);
+
+            // Row 2: Source 1 + Browse + Down Arrow (Row Center Y = 46)
+            Label lblS1 = new Label
+            {
+                Text = isSingle ? "S:" : "L:",
+                Left = 6,
+                Top = 38,
+                Width = 18,
+                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 190, 190)
+            };
+            topBlockPanel.Controls.Add(lblS1);
+
+            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(26, 33, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
+            topBlockPanel.Controls.Add(swatch1);
+
+            ModernComboBox cmb1 = new ModernComboBox
+            {
+                Left = 56,
+                Top = 33, // Centered for 25px height on row 2 (center Y = 45.5)
+                Width = comboW,
+                Height = 25,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                Tag = "Source1Combo",
+                BadgeResolver = ResolveDropdownBadge,
+                IconResolver = ResolveDropdownIcon
+            };
+            cmb1.Items.AddRange(options.Cast<object>().ToArray());
+            cmb1.SelectedItem = pair.Source1;
+            if (cmb1.SelectedIndex == -1) cmb1.Text = pair.Source1;
+            cmb1.DropDown += (s, e) =>
+            {
+                _detectedAudio = AudioProcessDetector.Scan();
+                PopulateSingleComboOptions(cmb1, includeGroups: true);
+            };
+            cmb1.SelectedIndexChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.Source1 = ReadComboText(cmb1);
+                MarkDirty();
+                PushLivePreviewIfActive();
+            };
+            cmb1.TextChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.Source1 = ReadComboText(cmb1);
+                MarkDirty();
+            };
+            topBlockPanel.Controls.Add(cmb1);
+
+            ModernButton btnBrowse1 = CreateModernButton("Browse", btnActionLeft, 33, 94, 25, false);
+            btnBrowse1.Tag = "Browse1Btn";
+            btnBrowse1.Click += (s, e) =>
+            {
+                BrowseForExecutable(cmb1);
+                pair.Source1 = ReadComboText(cmb1);
+                PushLivePreviewIfActive();
+            };
+            topBlockPanel.Controls.Add(btnBrowse1);
+
+            ModernButton btnDown = CreateModernButton("▼", btnArrowLeft, 33, 30, 25, false);
+            btnDown.Tag = "DownBtn";
+            btnDown.Click += (s, e) =>
+            {
+                int curIdx = targetList.IndexOf(pair);
+                if (_isPairListAnimating || curIdx < 0 || curIdx >= targetList.Count - 1) return;
+                AnimateSwapPairCards(host, targetList, curIdx, curIdx + 1);
+            };
+            topBlockPanel.Controls.Add(btnDown);
+
+            // Tall 2-Row Delete ('X') Button spanning Row 1 and Row 2
+            ModernButton btnDel = CreateModernButton("✕", btnDelLeft, 3, 32, 55, false, isDanger: true);
+            btnDel.Tag = "DeleteBtn";
+            btnDel.Click += (s, e) =>
+            {
+                int curIdx = targetList.IndexOf(pair);
+                if (_isPairListAnimating || curIdx < 0) return;
+                if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
+                {
+                    MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                AnimateRemovePairCard(host, targetList, curIdx);
+            };
+            topBlockPanel.Controls.Add(btnDel);
+
+            // --- ROW 3 PANEL (Source 2 + Browse ONLY - slides behind topBlockPanel when in Single Mode) ---
+            BufferedPanel row2Panel = new BufferedPanel
+            {
+                Left = 2,
+                Top = isSingle ? 34 : 68,
+                Width = hostW - 4,
+                Height = 30,
+                Visible = !isSingle,
+                BackColor = Color.FromArgb(48, 48, 48),
+                Tag = "Row2Panel"
+            };
+
+            Label lblS2 = new Label
+            {
+                Text = "R:",
+                Left = 6,
+                Top = 5,
+                Width = 18,
+                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 190, 190)
+            };
+            row2Panel.Controls.Add(lblS2);
+
+            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(26, 2, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
+            row2Panel.Controls.Add(swatch2);
+
+            ModernComboBox cmb2 = new ModernComboBox
+            {
+                Left = 56,
+                Top = 1, // Centered vertically on row 3 panel
+                Width = comboW,
+                Height = 25,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                Tag = "Source2Combo",
+                BadgeResolver = ResolveDropdownBadge,
+                IconResolver = ResolveDropdownIcon
+            };
+            cmb2.Items.AddRange(options.Cast<object>().ToArray());
+            cmb2.SelectedItem = pair.Source2;
+            if (cmb2.SelectedIndex == -1) cmb2.Text = pair.Source2;
+            cmb2.DropDown += (s, e) =>
+            {
+                _detectedAudio = AudioProcessDetector.Scan();
+                PopulateSingleComboOptions(cmb2, includeGroups: true);
+            };
+            cmb2.SelectedIndexChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.Source2 = ReadComboText(cmb2);
+                MarkDirty();
+                PushLivePreviewIfActive();
+            };
+            cmb2.TextChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.Source2 = ReadComboText(cmb2);
+                MarkDirty();
+            };
+            row2Panel.Controls.Add(cmb2);
+
+            ModernButton btnBrowse2 = CreateModernButton("Browse", btnActionLeft, 1, 94, 25, false);
+            btnBrowse2.Tag = "Browse2Btn";
+            btnBrowse2.Click += (s, e) =>
+            {
+                BrowseForExecutable(cmb2);
+                pair.Source2 = ReadComboText(cmb2);
+                PushLivePreviewIfActive();
+            };
+            row2Panel.Controls.Add(btnBrowse2);
+
+        // --- STANDALONE KEYBINDS PANEL (Only used for Standalone Pairs) ---
+        BufferedPanel? bottomPanel = null;
+        if (!isCarouselList)
+        {
+            pair.UseCustomKeybinds = true;
+
+            bottomPanel = new BufferedPanel
+            {
+                Left = 2,
+                Top = isSingle ? 66 : 98,
+                Width = hostW - 4,
+                Height = 74,
+                BackColor = Color.FromArgb(48, 48, 48),
+                Tag = "BottomPanel"
+            };
+
+            Label lblMuteMode = new Label
+            {
+                Text = "Mute:",
+                Left = 6,
+                Top = 4,
+                Width = 46,
+                Height = 18,
+                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(190, 190, 190)
+            };
+            bottomPanel.Controls.Add(lblMuteMode);
+
+            ModernComboBox cmbPairMute = new ModernComboBox
+            {
+                Left = 56,
+                Top = 0,
+                Width = comboW,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Tag = "PairMuteCombo"
+            };
+            cmbPairMute.Items.AddRange(PairMuteModeOptions);
+            cmbPairMute.SelectedItem = string.IsNullOrWhiteSpace(pair.MuteMode) ? "Use Global" : pair.MuteMode;
+            if (cmbPairMute.SelectedIndex == -1) cmbPairMute.SelectedIndex = 0;
+            cmbPairMute.SelectedIndexChanged += (s, e) =>
+            {
+                if (_isInitializing) return;
+                pair.MuteMode = cmbPairMute.SelectedItem?.ToString() ?? "Use Global";
+                MarkDirty();
+            };
+            bottomPanel.Controls.Add(cmbPairMute);
+
+            int rowLeft = 6;
+            int rowRight = btnDelLeft + 32;
+            int totalRowW = rowRight - rowLeft;
+            int colGap = 8;
+            int colW = (totalRowW - (colGap * 2)) / 3;
+
+            AddSideBySideKeybindColumn(bottomPanel, "Fade Left / Down", rowLeft, colW, 28, pair.KeyDown, val => pair.KeyDown = val, 0);
+            AddSideBySideKeybindColumn(bottomPanel, "Fade Right / Up", rowLeft + colW + colGap, colW, 28, pair.KeyUp, val => pair.KeyUp = val, 1);
+            AddSideBySideKeybindColumn(bottomPanel, "Mute Toggle", rowLeft + (colW + colGap) * 2, totalRowW - (colW * 2) - (colGap * 2), 28, pair.KeyMute, val => pair.KeyMute = val, 2);
+
+            pairCard.Controls.Add(bottomPanel);
+        }
+        else
+        {
+            pair.UseCustomKeybinds = false;
+        }
+
+        // Per-Card Finite State Machine for ControlModeState (Volume / Balance / Crossfade)
+        var modeFsm = new StateMachine<ControlModeState>(pair.ModeState);
+        modeFsm.ConfigureState(ControlModeState.Volume, onEnter: () =>
+        {
+            pair.ModeState = ControlModeState.Volume;
+            lblS1.Text = "S:";
+            AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, true, isCarouselList);
+        });
+        modeFsm.ConfigureState(ControlModeState.Balance, onEnter: () =>
+        {
+            pair.ModeState = ControlModeState.Balance;
+            lblS1.Text = "L:";
+            AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
+        });
+        modeFsm.ConfigureState(ControlModeState.Crossfade, onEnter: () =>
+        {
+            pair.ModeState = ControlModeState.Crossfade;
+            lblS1.Text = "L:";
+            AnimatePairCardModeChange(pairCard, topBlockPanel, row2Panel, bottomPanel, false, isCarouselList);
+        });
+
+        cmbMode.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            ControlModeState nextMode = ControlModeStateMachine.ParseState(cmbMode.SelectedItem?.ToString());
+            if (modeFsm.TransitionTo(nextMode))
+            {
+                MarkDirty();
+                PushLivePreviewIfActive();
+            }
+        };
+
+        pairCard.Controls.Add(row2Panel);
+        pairCard.Controls.Add(topBlockPanel);
+        topBlockPanel.BringToFront();
+
+        return pairCard;
+    }
+
+    private void UpdateHostPairButtonsState(Panel? host, List<CrossfadeCyclePair> list)
+    {
+        if (host == null) return;
+        int totalPairsCount = _draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count;
+
+        foreach (Control c in host.Controls)
+        {
+            if (c is not Win11CardPanel card || card.Tag is not CrossfadeCyclePair pair) continue;
+            int idx = list.IndexOf(pair);
+
+            foreach (Control sub in card.Controls)
+            {
+                if (sub is not Panel p || p.Tag as string != "TopBlockPanel") continue;
+                foreach (Control btn in p.Controls)
+                {
+                    if (btn.Tag is not string t) continue;
+                    if (t == "UpBtn") btn.Enabled = (idx > 0);
+                    else if (t == "DownBtn") btn.Enabled = (idx >= 0 && idx < list.Count - 1);
+                    else if (t == "DeleteBtn") btn.Enabled = (totalPairsCount > 1);
+                }
+            }
+        }
+    }
+
+    private void RefreshAllPairButtonsState()
+    {
+        UpdateHostPairButtonsState(_cycleSlotsHost, _draftSettings.CrossfadeCycleList);
+        UpdateHostPairButtonsState(_standaloneSlotsHost, _draftSettings.StandalonePairs);
+    }
+
     private void AnimateAddPairCard(
         Panel? host,
         List<CrossfadeCyclePair> targetList,
@@ -1700,34 +1709,46 @@ public class SettingsForm : Form
     {
         if (host == null) return;
 
+        List<CrossfadeCyclePair> oppositeList = isCarouselList ? _draftSettings.StandalonePairs : _draftSettings.CrossfadeCycleList;
         targetList.Add(newPair);
-        PopulateCycleListUI();
-        MarkDirty();
-        PushLivePreviewIfActive();
 
-        if (host.Controls.Count == 0)
+        int hostW = Math.Max(442, host.Width);
+        List<string> options = GetAvailableSourceOptions();
+
+        // Find the bottom-most existing card without rebuilding the host
+        Control? prevCard = null;
+        int finalTop = 0;
+        foreach (Control c in host.Controls)
         {
-            ReflowGeneralPage();
-            return;
+            if (prevCard == null || c.Top >= prevCard.Top)
+            {
+                prevCard = c;
+            }
+            if (c.Bottom + 6 > finalTop)
+            {
+                finalTop = c.Bottom + 6;
+            }
         }
 
-        int lastIdx = host.Controls.Count - 1;
-        Control newCard = host.Controls[lastIdx];
-        Control? prevCard = lastIdx > 0 ? host.Controls[lastIdx - 1] : null;
-
-        int finalTop = newCard.Top;
+        Win11CardPanel newCard = BuildSinglePairCard(host, newPair, targetList, oppositeList, isCarouselList, options, hostW);
         int finalCardH = newCard.Height;
         int startTop = prevCard != null ? prevCard.Top : -finalCardH;
         int startHostH = Math.Max(0, finalTop);
         int finalHostH = finalTop + finalCardH + 6;
 
-        // Place the new card behind the card above it so it slides out from underneath
+        host.SuspendLayout();
+        newCard.Top = startTop;
+        host.Controls.Add(newCard);
         if (prevCard != null)
         {
             prevCard.BringToFront();
         }
-        newCard.Top = startTop;
         host.Height = startHostH;
+        RefreshAllPairButtonsState();
+        host.ResumeLayout();
+
+        MarkDirty();
+        PushLivePreviewIfActive();
         ReflowGeneralPage();
 
         _isPairListAnimating = true;
@@ -1773,13 +1794,20 @@ public class SettingsForm : Form
         int removeIndex,
         Action? onComplete = null)
     {
-        if (host == null || removeIndex < 0 || removeIndex >= host.Controls.Count || removeIndex >= targetList.Count)
+        if (host == null || removeIndex < 0 || removeIndex >= targetList.Count)
             return;
 
-        Control removingCard = host.Controls[removeIndex];
-        Control? cardAbove = removeIndex > 0 ? host.Controls[removeIndex - 1] : null;
+        CrossfadeCyclePair pairToRemove = targetList[removeIndex];
+        CrossfadeCyclePair? pairAbove = removeIndex > 0 ? targetList[removeIndex - 1] : null;
 
-        // Ensure the card above stays visually on top while the removed card slides up behind it
+        Control? removingCard = host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, pairToRemove));
+        if (removingCard == null) return;
+
+        Control? cardAbove = pairAbove != null
+            ? host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, pairAbove))
+            : null;
+
+        // Keep the card above visually in front while the removed card slides up behind it
         if (cardAbove != null)
         {
             cardAbove.BringToFront();
@@ -1794,10 +1822,14 @@ public class SettingsForm : Form
         int targetRemoveTop = cardAbove != null ? cardAbove.Top : -removingCard.Height;
 
         List<(Control ctrl, int startY, int targetY)> trailingCards = new();
-        for (int i = removeIndex + 1; i < host.Controls.Count; i++)
+        for (int i = removeIndex + 1; i < targetList.Count; i++)
         {
-            Control c = host.Controls[i];
-            trailingCards.Add((c, c.Top, c.Top - shiftDelta));
+            var trailingPair = targetList[i];
+            Control? c = host.Controls.Cast<Control>().FirstOrDefault(ctrl => ReferenceEquals(ctrl.Tag, trailingPair));
+            if (c != null)
+            {
+                trailingCards.Add((c, c.Top, c.Top - shiftDelta));
+            }
         }
 
         int startHostH = host.Height;
@@ -1826,9 +1858,21 @@ public class SettingsForm : Form
                 timer.Stop();
                 timer.Dispose();
 
+                // Remove ONLY the deleted card in-place without clearing or recreating sibling cards!
+                host.SuspendLayout();
                 targetList.RemoveAt(removeIndex);
+                host.Controls.Remove(removingCard);
+                removingCard.Dispose();
+
+                foreach (var item in trailingCards)
+                {
+                    item.ctrl.Top = item.targetY;
+                }
+                host.Height = targetHostH;
+                RefreshAllPairButtonsState();
+                host.ResumeLayout();
+
                 _isPairListAnimating = false;
-                PopulateCycleListUI();
                 ReflowGeneralPage();
                 MarkDirty();
                 PushLivePreviewIfActive();
@@ -1854,7 +1898,7 @@ public class SettingsForm : Form
         int indexB)
     {
         if (host == null || indexA < 0 || indexB < 0 ||
-            indexA >= host.Controls.Count || indexB >= host.Controls.Count ||
+            indexA >= targetList.Count || indexB >= targetList.Count ||
             indexA == indexB)
         {
             return;
@@ -1863,15 +1907,22 @@ public class SettingsForm : Form
         int upperIdx = Math.Min(indexA, indexB);
         int lowerIdx = Math.Max(indexA, indexB);
 
-        Control upperCard = host.Controls[upperIdx];
-        Control lowerCard = host.Controls[lowerIdx];
-        Control initiatedCard = host.Controls[indexA];
+        CrossfadeCyclePair upperPair = targetList[upperIdx];
+        CrossfadeCyclePair lowerPair = targetList[lowerIdx];
+        CrossfadeCyclePair initiatedPair = targetList[indexA];
+
+        Control? upperCard = host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, upperPair));
+        Control? lowerCard = host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, lowerPair));
+        Control? initiatedCard = host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, initiatedPair));
+
+        if (upperCard == null || lowerCard == null || initiatedCard == null)
+            return;
+
         initiatedCard.BringToFront();
 
         int upperStartTop = upperCard.Top;
         int lowerStartTop = lowerCard.Top;
 
-        // Calculate exact final Y positions (accounting for cards that may have different heights)
         int upperTargetTop = upperStartTop + lowerCard.Height + 6;
         int lowerTargetTop = upperStartTop;
 
@@ -1895,16 +1946,15 @@ public class SettingsForm : Form
 
             if (t >= 1.0)
             {
-                // Snap to exact final positions and commit the swap in the data model
+                // Snap to exact final positions and swap in data model WITHOUT recreating controls!
                 upperCard.Top = upperTargetTop;
                 lowerCard.Top = lowerTargetTop;
                 timer.Stop();
                 timer.Dispose();
 
                 (targetList[indexA], targetList[indexB]) = (targetList[indexB], targetList[indexA]);
+                RefreshAllPairButtonsState();
                 _isPairListAnimating = false;
-                PopulateCycleListUI();
-                ReflowGeneralPage();
                 MarkDirty();
                 PushLivePreviewIfActive();
                 return;
@@ -2344,7 +2394,7 @@ public class SettingsForm : Form
         };
 
         int ay = 10;
-        AddSectionHeader(_layoutCard, "Position & Size", 14, ref ay);
+        AddSectionHeader(_layoutCard, "Position && Size", 14, ref ay);
 
         Label lblPos = new Label
         {
@@ -2565,7 +2615,7 @@ public class SettingsForm : Form
         };
 
         int by = 10;
-        AddSectionHeader(_behaviorCard, "Audio & System", 14, ref by);
+        AddSectionHeader(_behaviorCard, "Audio && System", 14, ref by);
 
         Label lblStep = new Label
         {

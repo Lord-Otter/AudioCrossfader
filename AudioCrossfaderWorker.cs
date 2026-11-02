@@ -780,8 +780,7 @@ public class AudioCrossfaderWorker
         // Standard volume mode or disabled center detent -> step linearly without pausing at 50%
         if (isSingleSource || !_settings.EnableEqualizationBuffer)
         {
-            float actualDelta = isSingleSource ? delta * 2.0f : delta;
-            state.TargetPosition = SnapEndpoints(state.TargetPosition + actualDelta);
+            state.TargetPosition = SnapEndpoints(state.TargetPosition + delta); // Removed the double * 2.0f multiplier
             return;
         }
 

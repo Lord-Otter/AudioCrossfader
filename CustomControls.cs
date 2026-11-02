@@ -447,7 +447,7 @@ public class DarkScrollPanel : Panel
                       ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         this.BackColor = Color.FromArgb(28, 28, 28);
 
-        _viewport = new Panel
+        _viewport = new BufferedPanel
         {
             Left = 0,
             Top = 0,
@@ -456,7 +456,7 @@ public class DarkScrollPanel : Panel
             BackColor = Color.FromArgb(28, 28, 28)
         };
 
-        _content = new Panel
+        _content = new BufferedPanel
         {
             Left = 0,
             Top = 0,
@@ -644,7 +644,21 @@ public class DarkScrollPanel : Panel
     }
 }
 
-// Custom Windows 11 Rounded Surface Card
+// Flicker-free Double-Buffered Panel for dynamic card containers and sub-rows
+public class BufferedPanel : Panel
+{
+    public BufferedPanel()
+    {
+        this.SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw |
+            ControlStyles.SupportsTransparentBackColor,
+            true);
+    }
+}
+
 // Custom Windows 11 Rounded Surface Card
 public class Win11CardPanel : Panel
 {
@@ -771,6 +785,7 @@ public class ModernComboBox : ComboBox
         this.FlatStyle = FlatStyle.Flat;
         this.DrawMode = DrawMode.OwnerDrawFixed;
         this.ItemHeight = 22;
+        this.Height = 24;
         this.Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
     }
 
