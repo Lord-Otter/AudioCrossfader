@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Runtime.InteropServices;
 
 public class DarkContextMenuColorTable : ProfessionalColorTable
@@ -163,8 +164,6 @@ public class ModernButton : Button
         Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
         if (rect.Width <= 0 || rect.Height <= 0) return;
 
-        // If this button sits inside the top navigation track with a sliding blue pill,
-        // draw the sliding pill in local coordinates so it glides seamlessly across buttons.
         if (parentCard != null && parentCard.ShowHighlightPill)
         {
             if (_isHovered && !_isPressed)
@@ -477,11 +476,9 @@ public class DarkScrollPanel : Panel
             if (c.Height > 0 && c.Bottom > maxBottom) maxBottom = c.Bottom;
         }
 
-        // Horizontal scrollbar ONLY appears when the window is narrower than MinContentWidth (496)
         bool needsH = this.ClientSize.Width < MinContentWidth;
         int availH = Math.Max(1, this.ClientSize.Height - (needsH ? ScrollBarSize : 0));
 
-        // Vertical scrollbar ONLY appears when the cards + bottom margin exceed the available window height
         int rawContentH = maxBottom + 10;
         bool needsV = rawContentH > availH;
         int availW = Math.Max(1, this.ClientSize.Width - (needsV ? ScrollBarSize : 0));
@@ -692,7 +689,7 @@ public class Win11CardPanel : Panel
         int maxBottom = 0;
         foreach (Control c in this.Controls)
         {
-            if (c.Height > 0 && c.Bottom > maxBottom)
+            if (c.Visible && c.Height > 0 && c.Bottom > maxBottom)
             {
                 maxBottom = c.Bottom;
             }
@@ -764,13 +761,68 @@ public class ModernComboBox : ComboBox
 {
     private const int WM_SIZE = 0x0005;
     private const int WM_SETFOCUS = 0x0007;
+    private const int WM_KILLFOCUS = 0x0008;
     private const int WM_PAINT = 0x000F;
+    private const int WM_ERASEBKGND = 0x0014;
     private const int WM_WINDOWPOSCHANGED = 0x0047;
+    private const int WM_MOUSEMOVE = 0x0200;
+    private const int WM_MOUSELEAVE = 0x02A3;
     private const int WM_MOUSEWHEEL = 0x020A;
     private const int CB_SETEDITSEL = 0x0142;
+    private const int CB_GETCOMBOBOXINFO = 0x0164;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct COMBOBOXINFO
+    {
+        public int cbSize;
+        public RECT rcItem;
+        public RECT rcButton;
+        public int stateButton;
+        public IntPtr hwndCombo;
+        public IntPtr hwndItem;
+        public IntPtr hwndList;
+    }
 
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetComboBoxInfo(IntPtr hwndCombo, ref COMBOBOXINFO info);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out Point lpPoint);
+
+    private bool _isHovered = false;
+    private EditBoxHook? _editHook;
+
+    // Hooks the internal Win32 Edit child control on writable dropdowns so moving the cursor
+    // into the text area (I-beam transition) never flashes a native white border!
+    private sealed class EditBoxHook : NativeWindow
+    {
+        private readonly ModernComboBox _owner;
+        public EditBoxHook(ModernComboBox owner, IntPtr editHandle)
+        {
+            _owner = owner;
+            AssignHandle(editHandle);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == WM_PAINT || m.Msg == WM_MOUSEMOVE || m.Msg == WM_MOUSELEAVE ||
+                m.Msg == WM_SETFOCUS || m.Msg == WM_KILLFOCUS)
+            {
+                _owner.UpdateHoverFromCursor();
+                _owner.PaintCustomChrome();
+            }
+        }
+    }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Func<string, BadgeInfo>? BadgeResolver { get; set; }
@@ -784,9 +836,37 @@ public class ModernComboBox : ComboBox
         this.ForeColor = Color.FromArgb(242, 242, 242);
         this.FlatStyle = FlatStyle.Flat;
         this.DrawMode = DrawMode.OwnerDrawFixed;
-        this.ItemHeight = 22;
-        this.Height = 24;
+        this.ItemHeight = 19; // 19 + 6px native Win32 frame = exact 25px control height
+        this.Height = 25;
         this.Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
+    }
+
+    private void AttachEditHookIfNeeded()
+    {
+        if (_editHook != null || !this.IsHandleCreated || this.DropDownStyle != ComboBoxStyle.DropDown)
+            return;
+
+        COMBOBOXINFO info = new COMBOBOXINFO { cbSize = Marshal.SizeOf<COMBOBOXINFO>() };
+        if (GetComboBoxInfo(this.Handle, ref info) && info.hwndItem != IntPtr.Zero)
+        {
+            _editHook = new EditBoxHook(this, info.hwndItem);
+        }
+    }
+
+    private void UpdateHoverFromCursor()
+    {
+        if (!this.IsHandleCreated || this.IsDisposed) return;
+        bool nowHovered = false;
+        if (GetCursorPos(out Point screenPt))
+        {
+            Point clientPt = this.PointToClient(screenPt);
+            nowHovered = this.ClientRectangle.Contains(clientPt);
+        }
+        if (nowHovered != _isHovered)
+        {
+            _isHovered = nowHovered;
+            PaintCustomChrome();
+        }
     }
 
     private void ClearNativeEditSelection()
@@ -800,7 +880,15 @@ public class ModernComboBox : ComboBox
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        AttachEditHookIfNeeded();
         this.BeginInvoke(new Action(ClearNativeEditSelection));
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        _editHook?.ReleaseHandle();
+        _editHook = null;
+        base.OnHandleDestroyed(e);
     }
 
     protected override void OnSelectedIndexChanged(EventArgs e)
@@ -812,16 +900,43 @@ public class ModernComboBox : ComboBox
         }
     }
 
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        base.OnMouseEnter(e);
+        UpdateHoverFromCursor();
+        PaintCustomChrome();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        UpdateHoverFromCursor();
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        UpdateHoverFromCursor();
+        PaintCustomChrome();
+    }
+
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         if (e.Index < 0 || e.Index >= Items.Count) return;
 
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
         bool isEditBox = (e.State & DrawItemState.ComboBoxEdit) == DrawItemState.ComboBoxEdit;
         bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
 
         // Never paint the blue selection background inside the closed ComboBox display area
-        Color bg = (isSelected && !isEditBox) ? Color.FromArgb(0, 103, 192) : this.BackColor;
+        Color bg = (isSelected && !isEditBox)
+            ? Color.FromArgb(0, 103, 192)
+            : (isEditBox && _isHovered && this.DropDownStyle == ComboBoxStyle.DropDownList
+                ? Color.FromArgb(55, 55, 55)
+                : this.BackColor);
 
         using (SolidBrush bgBrush = new SolidBrush(bg))
         {
@@ -844,19 +959,43 @@ public class ModernComboBox : ComboBox
         Rectangle textRect = new Rectangle(textLeft, e.Bounds.Y, e.Bounds.Right - textLeft - 6, e.Bounds.Height);
         if (!string.IsNullOrEmpty(badge.Text))
         {
-            using Font badgeFont = new Font("Segoe UI", 7.5f, FontStyle.Bold);
-            SizeF badgeSize = e.Graphics.MeasureString(badge.Text, badgeFont);
-            int pillWidth = (int)badgeSize.Width + 12;
-            int pillHeight = Math.Max(14, e.Bounds.Height - 6);
-            Rectangle pillRect = new Rectangle(e.Bounds.Right - pillWidth - 6, e.Bounds.Y + (e.Bounds.Height - pillHeight) / 2, pillWidth, pillHeight);
+            using Font badgeFont = new Font("Segoe UI Semibold", 7.5f, FontStyle.Bold);
+            Size badgeTextSz = TextRenderer.MeasureText(
+                e.Graphics,
+                badge.Text,
+                badgeFont,
+                new Size(400, 30),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+
+            int pillWidth = badgeTextSz.Width + 12;
+            int pillHeight = Math.Max(15, e.Bounds.Height - 4);
+            Rectangle pillRect = new Rectangle(
+                e.Bounds.Right - pillWidth - 6,
+                e.Bounds.Y + (e.Bounds.Height - pillHeight) / 2,
+                pillWidth,
+                pillHeight);
+
+            Color pillFill = (isSelected && !isEditBox)
+                ? Color.FromArgb(85, 0, 0, 0)
+                : Color.FromArgb(52, badge.Color);
+            Color pillBorder = (isSelected && !isEditBox)
+                ? Color.FromArgb(140, 255, 255, 255)
+                : Color.FromArgb(115, badge.Color);
 
             using GraphicsPath pillPath = Win11CardPanel.CreateRoundRect(pillRect, 4);
-            using SolidBrush pillBrush = new SolidBrush((isSelected && !isEditBox) ? Color.FromArgb(60, 0, 0, 0) : Color.FromArgb(45, badge.Color));
+            using SolidBrush pillBrush = new SolidBrush(pillFill);
+            using Pen pillPen = new Pen(pillBorder, 1f);
             e.Graphics.FillPath(pillBrush, pillPath);
+            e.Graphics.DrawPath(pillPen, pillPath);
 
-            using SolidBrush badgeTextBrush = new SolidBrush((isSelected && !isEditBox) ? Color.White : badge.Color);
-            using StringFormat sfBadge = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            e.Graphics.DrawString(badge.Text, badgeFont, badgeTextBrush, pillRect, sfBadge);
+            Color badgeTextColor = (isSelected && !isEditBox) ? Color.White : badge.Color;
+            TextRenderer.DrawText(
+                e.Graphics,
+                badge.Text,
+                badgeFont,
+                pillRect,
+                badgeTextColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
 
             textRect.Width = Math.Max(40, pillRect.Left - textRect.Left - 6);
         }
@@ -868,6 +1007,108 @@ public class ModernComboBox : ComboBox
             textRect,
             Color.White,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+    }
+
+    private void PaintCustomChrome()
+    {
+        if (this.IsDisposed || !this.IsHandleCreated) return;
+        ClearNativeEditSelection();
+
+        using Graphics g = Graphics.FromHwnd(this.Handle);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Rectangle outerRect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
+        if (outerRect.Width <= 0 || outerRect.Height <= 0) return;
+
+        bool isWritable = (this.DropDownStyle == ComboBoxStyle.DropDown);
+        Color buttonBg = (_isHovered && !isWritable) ? Color.FromArgb(55, 55, 55) : this.BackColor;
+
+        // 1. Erase native square 3D border AND the square Win32 dropdown button background on the right
+        int btnWidth = SystemInformation.VerticalScrollBarWidth + 2;
+        using (SolidBrush btnBgBrush = new SolidBrush(buttonBg))
+        {
+            g.FillRectangle(btnBgBrush, this.Width - btnWidth - 2, 1, btnWidth + 1, this.Height - 2);
+        }
+        using (Pen innerPen = new Pen(buttonBg, 2f))
+        {
+            g.DrawRectangle(innerPen, 1, 1, this.Width - 3, this.Height - 3);
+        }
+
+        // 2. Draw a clean floating chevron arrow inside the dropdown bar
+        float arrowCenterX = this.Width - (btnWidth / 2f) - 1f;
+        float arrowCenterY = this.Height / 2f;
+        Color arrowColor = this.DroppedDown
+            ? Color.FromArgb(96, 205, 255)
+            : (_isHovered ? Color.White : Color.FromArgb(195, 195, 195));
+
+        using (Pen arrowPen = new Pen(arrowColor, 1.6f)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        })
+        {
+            if (this.DroppedDown)
+            {
+                g.DrawLines(arrowPen, new PointF[]
+                {
+                    new PointF(arrowCenterX - 4f, arrowCenterY + 1.5f),
+                    new PointF(arrowCenterX, arrowCenterY - 2.5f),
+                    new PointF(arrowCenterX + 4f, arrowCenterY + 1.5f)
+                });
+            }
+            else
+            {
+                g.DrawLines(arrowPen, new PointF[]
+                {
+                    new PointF(arrowCenterX - 4f, arrowCenterY - 1.5f),
+                    new PointF(arrowCenterX, arrowCenterY + 2.5f),
+                    new PointF(arrowCenterX + 4f, arrowCenterY - 1.5f)
+                });
+            }
+        }
+
+        Color borderColor = this.DroppedDown
+            ? Color.FromArgb(0, 120, 212)
+            : (_isHovered ? Color.FromArgb(115, 115, 115) : Color.FromArgb(72, 72, 72));
+
+        // 3. Writable dropdowns use crisp rectangular sharp edges (like TextBoxes);
+        //    Non-writable dropdowns (DropDownList) keep their rounded corners!
+        if (isWritable)
+        {
+            using Pen sharpPen = new Pen(borderColor, 1f);
+            g.DrawRectangle(sharpPen, outerRect);
+        }
+        else
+        {
+            using GraphicsPath borderPath = Win11CardPanel.CreateRoundRect(outerRect, 5);
+
+            Color parentBg = this.Parent?.BackColor ?? Color.FromArgb(48, 48, 48);
+            if (parentBg == Color.Transparent)
+            {
+                Control? p = this.Parent;
+                while (p != null && p.BackColor == Color.Transparent)
+                {
+                    if (p is Win11CardPanel card)
+                    {
+                        parentBg = card.FillColor;
+                        break;
+                    }
+                    p = p.Parent;
+                }
+                if (parentBg == Color.Transparent) parentBg = Color.FromArgb(48, 48, 48);
+            }
+
+            using (Region cornerMask = new Region(this.ClientRectangle))
+            {
+                cornerMask.Exclude(borderPath);
+                using SolidBrush maskBrush = new SolidBrush(parentBg);
+                g.FillRegion(maskBrush, cornerMask);
+            }
+
+            using Pen outerPen = new Pen(borderColor, 1f);
+            g.DrawPath(outerPen, borderPath);
+        }
     }
 
     protected override void WndProc(ref Message m)
@@ -886,25 +1127,26 @@ public class ModernComboBox : ComboBox
             }
         }
 
+        if (m.Msg == WM_ERASEBKGND)
+        {
+            m.Result = (IntPtr)1;
+            return;
+        }
+
+        // Always call base.WndProc so clicking anywhere on the dropdown opens it normally!
         base.WndProc(ref m);
 
-        // Immediately clear any auto-selection triggered by Win32 during resize or layout changes
         if (m.Msg == WM_SIZE || m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SETFOCUS)
         {
             ClearNativeEditSelection();
         }
 
-        if (m.Msg == WM_PAINT)
+        // Repaint custom chrome immediately after native paint or mouse hover changes so native white borders never show
+        if (m.Msg == WM_PAINT || m.Msg == WM_MOUSEMOVE || m.Msg == WM_MOUSELEAVE ||
+            m.Msg == WM_SETFOCUS || m.Msg == WM_KILLFOCUS)
         {
-            ClearNativeEditSelection();
-            using Graphics g = Graphics.FromHwnd(this.Handle);
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            using Pen innerPen = new Pen(this.BackColor, 2f);
-            g.DrawRectangle(innerPen, 0, 0, this.Width - 1, this.Height - 1);
-
-            using GraphicsPath borderPath = Win11CardPanel.CreateRoundRect(new Rectangle(0, 0, this.Width - 1, this.Height - 1), 5);
-            using Pen outerPen = new Pen(this.DroppedDown ? Color.FromArgb(0, 120, 212) : Color.FromArgb(68, 68, 68), 1f);
-            g.DrawPath(outerPen, borderPath);
+            UpdateHoverFromCursor();
+            PaintCustomChrome();
         }
     }
 }

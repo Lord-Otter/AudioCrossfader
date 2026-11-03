@@ -95,9 +95,58 @@ public class SettingsForm : Form
         catch { }
         return (scr.Bounds.Width, scr.Bounds.Height);
     }
+    private static class PairCardLayout
+    {
+        public const int CardPaddingTop = 7;
+        public const int CardPaddingBottom = 7;
+        public const int RowHeight = 25;
+        public const int RowVerticalGap = 6;
+        public const int StandaloneSectionGap = 6;
+        public const int KeybindSectionGap = 7;
+        public const int KeybindBlockHeight = 42;
+        public const int CardListGap = 6;
 
-    private const int CarouselPairCardHeight = 104; // Increased by 4px for breathing room
-    private const int StandalonePairCardHeight = 180;
+        public const int ComboOffsetY = 0;
+        public const int ButtonOffsetY = 0;
+        public const int SwatchOffsetY = 0;
+        public const int LabelOffsetY = 4;
+        public const int CheckBoxOffsetY = 2;
+
+        public static int RowStep => RowHeight + RowVerticalGap;
+
+        public static int ModeRowY => 0;
+        public static int Source1RowY => RowStep;
+        public static int TopBlockHeight => Source1RowY + RowHeight + 1;
+        public static int DeleteButtonHeight => (Source1RowY + RowHeight) - ButtonOffsetY;
+
+        public static int GetRow2PanelTop(bool isSingle) =>
+            isSingle
+                ? (CardPaddingTop + Source1RowY)
+                : (CardPaddingTop + Source1RowY + RowStep);
+
+        public static int GetBottomPanelTop(bool isSingle) =>
+            (isSingle
+                ? (CardPaddingTop + Source1RowY + RowHeight)
+                : (GetRow2PanelTop(false) + RowHeight)) + StandaloneSectionGap;
+
+        public static int KeybindColumnsTop => RowHeight + KeybindSectionGap;
+        public static int BottomPanelHeight => KeybindColumnsTop + KeybindBlockHeight + 1;
+
+        public static int GetCardHeight(bool isCarouselList, bool isSingle)
+        {
+            if (isCarouselList)
+            {
+                int contentBottom = isSingle
+                    ? (CardPaddingTop + Source1RowY + RowHeight)
+                    : (GetRow2PanelTop(false) + RowHeight);
+                return contentBottom + CardPaddingBottom;
+            }
+            else
+            {
+                return GetBottomPanelTop(isSingle) + BottomPanelHeight + CardPaddingBottom;
+            }
+        }
+    }
 
     private static readonly object[] GlobalMuteModeOptions = new object[]
     {
@@ -126,14 +175,21 @@ public class SettingsForm : Form
     private DarkScrollPanel _pageGroups = null!;
     private DarkScrollPanel _pagePersonalization = null!;
 
-    // Merged Carousel Pairs + Global Hotkeys Box
     private Win11CardPanel _cycleListCard = null!;
     private Label _lblCycleCardTitle = null!;
     private ModernButton _btnAddCycleEntry = null!;
     private Panel _cycleSlotsHost = null!;
     private Panel _globalKeysHost = null!;
 
-    // Standalone (Non-Carousel) Pairs Box
+    private BufferedPanel _globalKeysHeaderBar = null!;
+    private BufferedPanel _globalKeysShutterPanel = null!;
+    private bool _isGlobalKeysExpanded = false;
+    private bool _isGlobalKeysHovered = false;
+    private float _globalKeysAnimProgress = 0f;
+    private System.Windows.Forms.Timer? _globalKeysAnimTimer;
+    private const int GlobalKeysHeaderHeight = 30;
+    private int _globalKeysExpandedContentHeight = 182;
+
     private Win11CardPanel _standaloneListCard = null!;
     private Label _lblStandaloneCardTitle = null!;
     private ModernButton _btnAddStandaloneEntry = null!;
@@ -161,9 +217,11 @@ public class SettingsForm : Form
     private ModernComboBox _cmbCarouselStyle = null!;
     private CheckBox _chkUseSourceBgColors = null!;
     private CheckBox _chkFadeBgWithVolume = null!;
-    private CheckBox _chkShowCarousel = null!;
+    private CheckBox _chkCompactNeighborPreviews = null!;
     private CheckBox _chkEnableAnimations = null!;
+    private TextBox _txtCarouselSpeed = null!;
     private CheckBox _chkCarouselBg = null!;
+    
     private ModernComboBox _cmbPosition = null!;
     private TextBox _txtPopupDuration = null!;
     private TextBox _txtOverlayOpacity = null!;
@@ -174,6 +232,12 @@ public class SettingsForm : Form
     private CheckBox _chkInterpolation = null!;
     private TextBox _txtInterpSpeed = null!;
     private CheckBox _chkBuffer = null!;
+
+    private ModernComboBox _cmbCarouselMode = null!;
+    private CheckBox _chkInvertCarouselScroll = null!;
+    private ModernComboBox _cmbCardOrder = null!;
+    private Action? _updateCarouselModeLayout;
+    private System.Windows.Forms.Timer? _carouselCardAnimTimer;
 
     private RoundedColorSwatch _unmutedColorBox = null!;
     private RoundedColorSwatch _mutedColorBox = null!;
@@ -317,8 +381,6 @@ public class SettingsForm : Form
         try
         {
             int clientW = ClientSize.Width;
-            // Both top navigation bar and main cards use clientW - 36 (18px left, 18px right)
-            // so the right edge of the cards aligns with the top tabs box.
             int effectiveBarW = Math.Max(468, clientW - 36);
             int cardW = effectiveBarW;
 
@@ -364,6 +426,15 @@ public class SettingsForm : Form
                 if (_globalKeysHost != null)
                 {
                     _globalKeysHost.Width = cardW - 24;
+                    if (_globalKeysHeaderBar != null)
+                    {
+                        _globalKeysHeaderBar.Width = _globalKeysHost.Width;
+                        _globalKeysHeaderBar.Invalidate();
+                    }
+                    if (_globalKeysShutterPanel != null)
+                    {
+                        _globalKeysShutterPanel.Width = _globalKeysHost.Width;
+                    }
 
                     int kbWidth = Math.Max(220, _globalKeysHost.Width - 142);
 
@@ -386,7 +457,6 @@ public class SettingsForm : Form
             if (_isInitializing)
                 return;
 
-            // During interactive drag, only resize the currently visible tab to keep the catch-up snappy
             if (!_isResizing || _activeTabIndex == 0)
             {
                 ResizeExistingPairCards(_cycleSlotsHost);
@@ -428,6 +498,8 @@ public class SettingsForm : Form
         _cmbLevelMode.Width = rightStretchW;
         _unmutedColorBox.Width = rightStretchW;
         _mutedColorBox.Width = rightStretchW;
+        if (_cmbCarouselMode != null) _cmbCarouselMode.Width = rightStretchW;
+        _cmbCarouselStyle.Width = rightStretchW;
         _cmbCarouselStyle.Width = rightStretchW;
         _cmbPosition.Width = rightStretchW;
 
@@ -528,7 +600,6 @@ public class SettingsForm : Form
     {
         if (_tabStateMachine != null) return;
 
-        // Ensure all pages start in a known visibility state before the first transition
         _pageGeneral.Visible = true;
         _pageGroups.Visible = false;
         _pagePersonalization.Visible = false;
@@ -646,7 +717,7 @@ public class SettingsForm : Form
             _ => SettingsTabState.Sources
         };
 
-        _tabStateMachine.TransitionTo(targetState, force: _isInitializing || firstInit);
+        _tabStateMachine?.TransitionTo(targetState, force: _isInitializing || firstInit);
     }
 
     private void StyleNavButton(ModernButton btn, bool active)
@@ -672,7 +743,7 @@ public class SettingsForm : Form
         _navPillTargetX = targetBtn.Left;
         _navPillTargetW = targetBtn.Width;
 
-        const double durationMs = 220.0;
+        const double durationMs = 120.0;
         _navPillWatch.Restart();
 
         if (_navPillAnimTimer == null)
@@ -687,7 +758,6 @@ public class SettingsForm : Form
                 }
 
                 double t = Math.Clamp(_navPillWatch.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
-                // Cubic Ease-Out damper: fast start, smooth deceleration, exact snap at t == 1.0
                 float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
 
                 if (t >= 1.0)
@@ -887,7 +957,6 @@ public class SettingsForm : Form
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
         int y = 4;
 
-        // 1. Merged Carousel Source Pairs & Global Hotkeys Box
         _cycleListCard = new Win11CardPanel
         {
             Left = 18,
@@ -934,34 +1003,90 @@ public class SettingsForm : Form
         };
         _cycleListCard.Controls.Add(_cycleSlotsHost);
 
-        // Global Hotkeys section embedded inside the Carousel Pairs card
         _globalKeysHost = new BufferedPanel
         {
             Left = 12,
             Top = 42,
             Width = 444,
-            Height = 212,
+            Height = GlobalKeysHeaderHeight,
             BackColor = Color.FromArgb(39, 39, 39)
         };
-        _globalKeysHost.Paint += (s, e) =>
+
+        _globalKeysHeaderBar = new BufferedPanel
         {
-            using Pen sepPen = new Pen(Color.FromArgb(62, 62, 62), 1);
-            e.Graphics.DrawLine(sepPen, 2, 2, _globalKeysHost.Width - 4, 2);
+            Left = 0,
+            Top = 0,
+            Width = 444,
+            Height = GlobalKeysHeaderHeight,
+            BackColor = Color.FromArgb(39, 39, 39),
+            Cursor = Cursors.Hand
         };
 
-        int ky = 10;
-        AddSectionHeader(_globalKeysHost, "Global Hotkeys (Click to bind, Esc to clear)", 2, ref ky);
+        _globalKeysHeaderBar.MouseEnter += (s, e) => { _isGlobalKeysHovered = true; _globalKeysHeaderBar.Invalidate(); };
+        _globalKeysHeaderBar.MouseLeave += (s, e) => { _isGlobalKeysHovered = false; _globalKeysHeaderBar.Invalidate(); };
+        _globalKeysHeaderBar.Click += (s, e) => ToggleGlobalHotkeysShutter();
 
-        AddAlignedLabel(_globalKeysHost, "Fade Left / Down:", 2, ky);
-        _kbKey2 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyDown = val);
+        _globalKeysHeaderBar.Paint += (s, e) =>
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.FromArgb(39, 39, 39));
 
-        AddAlignedLabel(_globalKeysHost, "Fade Right / Up:", 2, ky);
-        _kbKey1 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyUp = val);
+            using Pen sepPen = new Pen(Color.FromArgb(62, 62, 62), 1);
+            g.DrawLine(sepPen, 2, 2, _globalKeysHeaderBar.Width - 4, 2);
 
-        AddAlignedLabel(_globalKeysHost, "Mute Toggle:", 2, ky);
-        _kbKey3 = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyMute = val);
+            if (_isGlobalKeysHovered)
+            {
+                using var hoverPath = Win11CardPanel.CreateRoundRect(new Rectangle(0, 5, _globalKeysHeaderBar.Width - 1, _globalKeysHeaderBar.Height - 6), 5);
+                using var hoverBrush = new SolidBrush(Color.FromArgb(46, 46, 46));
+                g.FillPath(hoverBrush, hoverPath);
+            }
 
-        AddAlignedLabel(_globalKeysHost, "Mute Behavior:", 2, ky);
+            Color titleColor = _isGlobalKeysHovered
+                ? Color.FromArgb(130, 220, 255)
+                : Color.FromArgb(96, 205, 255);
+
+            string titleText = _isGlobalKeysExpanded
+                ? "Global Hotkeys (Click to bind, Esc to clear)"
+                : "Global Hotkeys";
+
+            using Font titleFont = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold);
+            TextRenderer.DrawText(
+                g,
+                titleText,
+                titleFont,
+                new Rectangle(2, 6, _globalKeysHeaderBar.Width - 36, 22),
+                titleColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+            float cx = _globalKeysHeaderBar.Width - 14f;
+            float cy = 17f;
+            using SolidBrush arrowBrush = new SolidBrush(titleColor);
+            PointF[] triangle = _isGlobalKeysExpanded
+                ? new PointF[] { new PointF(cx - 5f, cy + 2.5f), new PointF(cx + 5f, cy + 2.5f), new PointF(cx, cy - 3.5f) }
+                : new PointF[] { new PointF(cx - 5f, cy - 2.5f), new PointF(cx + 5f, cy - 2.5f), new PointF(cx, cy + 3.5f) };
+            g.FillPolygon(arrowBrush, triangle);
+        };
+
+        _globalKeysShutterPanel = new BufferedPanel
+        {
+            Left = 0,
+            Top = GlobalKeysHeaderHeight,
+            Width = 444,
+            BackColor = Color.FromArgb(39, 39, 39)
+        };
+
+        int ky = 4;
+        AddAlignedLabel(_globalKeysShutterPanel, "Fade Left / Down:", 2, ky);
+        _kbKey2 = AddKeybindBoxControl(_globalKeysShutterPanel, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyDown = val);
+
+        AddAlignedLabel(_globalKeysShutterPanel, "Fade Right / Up:", 2, ky);
+        _kbKey1 = AddKeybindBoxControl(_globalKeysShutterPanel, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyUp = val);
+
+        AddAlignedLabel(_globalKeysShutterPanel, "Mute Toggle:", 2, ky);
+        _kbKey3 = AddKeybindBoxControl(_globalKeysShutterPanel, 136, 304, ref ky, val => _draftSettings.CrossfadeKeyMute = val);
+
+        AddAlignedLabel(_globalKeysShutterPanel, "Mute Behavior:", 2, ky);
         _cmbGlobalMuteMode = new ModernComboBox
         {
             Left = 136,
@@ -978,26 +1103,32 @@ public class SettingsForm : Form
             _draftSettings.GlobalMuteMode = _cmbGlobalMuteMode.SelectedItem?.ToString() ?? "Cycle R → L";
             MarkDirty();
         };
-        _globalKeysHost.Controls.Add(_cmbGlobalMuteMode);
-        ky += 32;
+        _globalKeysShutterPanel.Controls.Add(_cmbGlobalMuteMode);
+        ky += 31;
 
-        AddAlignedLabel(_globalKeysHost, "Next Pair:", 2, ky);
-        _kbKeyCycleNext = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val =>
+        AddAlignedLabel(_globalKeysShutterPanel, "Next Pair:", 2, ky);
+        _kbKeyCycleNext = AddKeybindBoxControl(_globalKeysShutterPanel, 136, 304, ref ky, val =>
         {
             _draftSettings.CycleNextKey = val;
             _draftSettings.QuickSwapKey = val;
         });
 
-        AddAlignedLabel(_globalKeysHost, "Previous Pair:", 2, ky);
-        _kbKeyCyclePrev = AddKeybindBoxControl(_globalKeysHost, 136, 304, ref ky, val => _draftSettings.CyclePrevKey = val);
+        AddAlignedLabel(_globalKeysShutterPanel, "Previous Pair:", 2, ky);
+        _kbKeyCyclePrev = AddKeybindBoxControl(_globalKeysShutterPanel, 136, 304, ref ky, val => _draftSettings.CyclePrevKey = val);
 
-        _globalKeysHost.Height = ky + 2;
+        _globalKeysExpandedContentHeight = ky + 2;
+        _globalKeysShutterPanel.Height = _globalKeysExpandedContentHeight;
+        _globalKeysShutterPanel.Top = GlobalKeysHeaderHeight - _globalKeysExpandedContentHeight;
+        _globalKeysShutterPanel.Visible = false;
+
+        _globalKeysHost.Controls.Add(_globalKeysShutterPanel);
+        _globalKeysHost.Controls.Add(_globalKeysHeaderBar);
+        _globalKeysHeaderBar.BringToFront();
+
         _cycleListCard.Controls.Add(_globalKeysHost);
-
         page.InnerControls.Add(_cycleListCard);
         y = _cycleListCard.Bottom + 10;
 
-        // 2. Standalone Source Pairs Box (Excluded from Carousel, always has dedicated keybinds)
         _standaloneListCard = new Win11CardPanel
         {
             Left = 18,
@@ -1195,22 +1326,20 @@ public class SettingsForm : Form
         bool toSingleMode,
         bool isCarouselList)
     {
-        topBlockPanel.BringToFront(); // Ensures row2Panel slides neatly BEHIND topBlockPanel
+        topBlockPanel.BringToFront();
 
         int startCardH = pairCard.Height;
-        int targetCardH = isCarouselList
-            ? (toSingleMode ? 74 : CarouselPairCardHeight)
-            : (toSingleMode ? 150 : StandalonePairCardHeight);
+        int targetCardH = PairCardLayout.GetCardHeight(isCarouselList, toSingleMode);
 
         int startRow2Top = row2Panel.Top;
-        int targetRow2Top = toSingleMode ? 32 : 68; // 32 for Volume, 68 for Balance/Crossfade
+        int targetRow2Top = PairCardLayout.GetRow2PanelTop(toSingleMode);
 
         int startBottomTop = bottomSection?.Top ?? 0;
-        int targetBottomTop = toSingleMode ? 62 : 94; // 62 for Volume, 94 for Balance/Crossfade
+        int targetBottomTop = PairCardLayout.GetBottomPanelTop(toSingleMode);
 
         row2Panel.Visible = true;
 
-        const double durationMs = 220.0;
+        const double durationMs = 120.0;
         Stopwatch sw = Stopwatch.StartNew();
         var animTimer = new System.Windows.Forms.Timer { Interval = 15 };
         animTimer.Tick += (s, e) =>
@@ -1223,7 +1352,7 @@ public class SettingsForm : Form
             }
 
             double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
-            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
 
             if (t >= 1.0)
             {
@@ -1248,7 +1377,7 @@ public class SettingsForm : Form
                 foreach (Control sibling in pairCard.Parent.Controls.Cast<Control>().OrderBy(c => c.Top))
                 {
                     sibling.Top = curY;
-                    curY += sibling.Height + 6;
+                    curY += sibling.Height + PairCardLayout.CardListGap;
                 }
                 pairCard.Parent.Height = curY;
             }
@@ -1277,7 +1406,7 @@ public class SettingsForm : Form
             Win11CardPanel pairCard = BuildSinglePairCard(host, pair, targetList, oppositeList, isCarouselList, options, hostW);
             pairCard.Top = y;
             host.Controls.Add(pairCard);
-            y += pairCard.Height + 6;
+            y += pairCard.Height + PairCardLayout.CardListGap;
         }
 
         host.Height = y;
@@ -1297,13 +1426,11 @@ public class SettingsForm : Form
         bool isSingle = pair.IsSingleMode;
 
         int comboW = Math.Max(140, hostW - 234);
-        int btnActionLeft = 56 + comboW + 6; // Move & Browse buttons (Width = 94)
-        int btnArrowLeft = btnActionLeft + 94 + 4; // Up & Down arrows (Width = 30)
-        int btnDelLeft = btnArrowLeft + 30 + 4; // 2-Row 'X' button (Width = 32)
+        int btnActionLeft = 56 + comboW + 6;
+        int btnArrowLeft = btnActionLeft + 94 + 4;
+        int btnDelLeft = btnArrowLeft + 30 + 4;
 
-        int cardH = isCarouselList
-            ? (isSingle ? 74 : CarouselPairCardHeight) // 74px gives single volume cards a proper bottom margin
-            : (isSingle ? 150 : StandalonePairCardHeight);
+        int cardH = PairCardLayout.GetCardHeight(isCarouselList, isSingle);
 
         Win11CardPanel pairCard = new Win11CardPanel
         {
@@ -1318,257 +1445,277 @@ public class SettingsForm : Form
             Tag = pair
         };
 
-        // --- TOP BLOCK PANEL (Holds Row 1 [Mode] + Row 2 [Source 1] + 2-row tall X button) ---
-            BufferedPanel topBlockPanel = new BufferedPanel
-            {
-                Left = 2,
-                Top = 4,
-                Width = hostW - 4,
-                Height = 62,
-                BackColor = Color.FromArgb(48, 48, 48),
-                Tag = "TopBlockPanel"
-            };
+        BufferedPanel topBlockPanel = new BufferedPanel
+        {
+            Left = 2,
+            Top = PairCardLayout.CardPaddingTop,
+            Width = hostW - 4,
+            Height = PairCardLayout.TopBlockHeight,
+            BackColor = Color.FromArgb(48, 48, 48),
+            Tag = "TopBlockPanel"
+        };
 
-            // Row 1: Mode Dropdown + Invert Checkbox + Move List Button + Up Arrow (Row Center Y = 16)
-            Label lblMode = new Label
-            {
-                Text = "Mode:",
-                Left = 6,
-                Top = 8,
-                Width = 46,
-                Height = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            topBlockPanel.Controls.Add(lblMode);
+        int r1Y = PairCardLayout.ModeRowY;
 
-            int invertW = 62;
-            int modeComboW = Math.Max(95, comboW - invertW - 6);
+        Label lblMode = new Label
+        {
+            Text = "Mode:",
+            Left = 6,
+            Top = r1Y + PairCardLayout.LabelOffsetY,
+            Width = 46,
+            Height = 18,
+            Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(190, 190, 190)
+        };
+        topBlockPanel.Controls.Add(lblMode);
 
-            ModernComboBox cmbMode = new ModernComboBox
-            {
-                Left = 56,
-                Top = 3, // Centered for 25px height on row 1 (center Y = 15.5)
-                Width = modeComboW,
-                Height = 25,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Tag = "ModeCombo"
-            };
-            cmbMode.Items.AddRange(new object[] { "Volume", "Balance", "Crossfade" });
+        int invertW = 62;
+        int modeComboW = Math.Max(95, comboW - invertW - 6);
 
-            if (pair.IsSingleMode)
-                cmbMode.SelectedItem = "Volume";
-            else if (pair.IsCrossfadeMode)
-                cmbMode.SelectedItem = "Crossfade";
-            else
-                cmbMode.SelectedItem = "Balance";
+        ModernComboBox cmbMode = new ModernComboBox
+        {
+            Left = 56,
+            Top = r1Y + PairCardLayout.ComboOffsetY,
+            Width = modeComboW,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Tag = "ModeCombo"
+        };
+        cmbMode.Items.AddRange(new object[] { "Volume", "Balance", "Crossfade" });
 
-            topBlockPanel.Controls.Add(cmbMode);
+        if (pair.IsSingleMode)
+            cmbMode.SelectedItem = "Volume";
+        else if (pair.IsCrossfadeMode)
+            cmbMode.SelectedItem = "Crossfade";
+        else
+            cmbMode.SelectedItem = "Balance";
 
-            CheckBox chkInvert = new CheckBox
-            {
-                Text = "Invert",
-                Checked = pair.InvertDirection,
-                Left = 56 + modeComboW + 6,
-                Top = 4,
-                Width = invertW,
-                Height = 22,
-                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                ForeColor = Color.FromArgb(215, 215, 215),
-                Tag = "InvertChk"
-            };
-            _toolTip.SetToolTip(chkInvert, "Invert Volume Up / Down direction for this pair");
-            chkInvert.CheckedChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.InvertDirection = chkInvert.Checked;
-                MarkDirty();
-            };
-            topBlockPanel.Controls.Add(chkInvert);
+        topBlockPanel.Controls.Add(cmbMode);
 
-            ModernButton btnMoveList = CreateModernButton(isCarouselList ? "To Standalone" : "To Carousel", btnActionLeft, 3, 94, 25, false);
-            btnMoveList.Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold);
-            btnMoveList.Tag = "MoveListBtn";
-            btnMoveList.Click += (s, e) =>
-            {
-                if (_isPairListAnimating) return;
-                int index = targetList.IndexOf(pair);
-                if (index < 0) return;
-                AnimateRemovePairCard(host, targetList, index, onComplete: () =>
-                {
-                    pair.UseCustomKeybinds = isCarouselList;
-                    Panel? destHost = isCarouselList ? _standaloneSlotsHost : _cycleSlotsHost;
-                    AnimateAddPairCard(destHost, oppositeList, pair, isCarouselList: !isCarouselList);
-                });
-            };
-            topBlockPanel.Controls.Add(btnMoveList);
+        CheckBox chkInvert = new CheckBox
+        {
+            Text = "Invert",
+            Checked = pair.InvertDirection,
+            Left = 56 + modeComboW + 6,
+            Top = r1Y + PairCardLayout.CheckBoxOffsetY,
+            Width = invertW,
+            Height = 22,
+            Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+            ForeColor = Color.FromArgb(215, 215, 215),
+            Tag = "InvertChk"
+        };
+        _toolTip.SetToolTip(chkInvert, "Invert Volume Up / Down direction for this pair");
+        chkInvert.CheckedChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            pair.InvertDirection = chkInvert.Checked;
+            MarkDirty();
+        };
+        topBlockPanel.Controls.Add(chkInvert);
 
-            ModernButton btnUp = CreateModernButton("▲", btnArrowLeft, 3, 30, 25, false);
-            btnUp.Tag = "UpBtn";
-            btnUp.Click += (s, e) =>
+        ModernButton btnMoveList = CreateModernButton(
+            isCarouselList ? "To Standalone" : "To Carousel",
+            btnActionLeft,
+            r1Y + PairCardLayout.ButtonOffsetY,
+            94,
+            25,
+            false);
+        btnMoveList.Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold);
+        btnMoveList.Tag = "MoveListBtn";
+        btnMoveList.Click += (s, e) =>
+        {
+            if (_isPairListAnimating) return;
+            int index = targetList.IndexOf(pair);
+            if (index < 0) return;
+            AnimateRemovePairCard(host, targetList, index, onComplete: () =>
             {
-                int curIdx = targetList.IndexOf(pair);
-                if (_isPairListAnimating || curIdx <= 0) return;
-                AnimateSwapPairCards(host, targetList, curIdx, curIdx - 1);
-            };
-            topBlockPanel.Controls.Add(btnUp);
+                pair.UseCustomKeybinds = isCarouselList;
+                Panel? destHost = isCarouselList ? _standaloneSlotsHost : _cycleSlotsHost;
+                AnimateAddPairCard(destHost, oppositeList, pair, isCarouselList: !isCarouselList);
+            });
+        };
+        topBlockPanel.Controls.Add(btnMoveList);
 
-            // Row 2: Source 1 + Browse + Down Arrow (Row Center Y = 46)
-            Label lblS1 = new Label
-            {
-                Text = isSingle ? "S:" : "L:",
-                Left = 6,
-                Top = 38,
-                Width = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            topBlockPanel.Controls.Add(lblS1);
+        ModernButton btnUp = CreateModernButton("▲", btnArrowLeft, r1Y + PairCardLayout.ButtonOffsetY, 30, 25, false);
+        btnUp.Tag = "UpBtn";
+        btnUp.Click += (s, e) =>
+        {
+            int curIdx = targetList.IndexOf(pair);
+            if (_isPairListAnimating || curIdx <= 0) return;
+            AnimateSwapPairCards(host, targetList, curIdx, curIdx - 1);
+        };
+        topBlockPanel.Controls.Add(btnUp);
 
-            RoundedColorSwatch swatch1 = CreateCompactColorSwatch(26, 33, 24, 24, pair.Color1Hex, hex => pair.Color1Hex = hex);
-            topBlockPanel.Controls.Add(swatch1);
+        int r2Y = PairCardLayout.Source1RowY;
 
-            ModernComboBox cmb1 = new ModernComboBox
-            {
-                Left = 56,
-                Top = 33, // Centered for 25px height on row 2 (center Y = 45.5)
-                Width = comboW,
-                Height = 25,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                Tag = "Source1Combo",
-                BadgeResolver = ResolveDropdownBadge,
-                IconResolver = ResolveDropdownIcon
-            };
-            cmb1.Items.AddRange(options.Cast<object>().ToArray());
-            cmb1.SelectedItem = pair.Source1;
-            if (cmb1.SelectedIndex == -1) cmb1.Text = pair.Source1;
-            cmb1.DropDown += (s, e) =>
-            {
-                _detectedAudio = AudioProcessDetector.Scan();
-                PopulateSingleComboOptions(cmb1, includeGroups: true);
-            };
-            cmb1.SelectedIndexChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source1 = ReadComboText(cmb1);
-                MarkDirty();
-                PushLivePreviewIfActive();
-            };
-            cmb1.TextChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source1 = ReadComboText(cmb1);
-                MarkDirty();
-            };
-            topBlockPanel.Controls.Add(cmb1);
+        Label lblS1 = new Label
+        {
+            Text = isSingle ? "S:" : "L:",
+            Left = 6,
+            Top = r2Y + PairCardLayout.LabelOffsetY,
+            Width = 18,
+            Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(190, 190, 190)
+        };
+        topBlockPanel.Controls.Add(lblS1);
 
-            ModernButton btnBrowse1 = CreateModernButton("Browse", btnActionLeft, 33, 94, 25, false);
-            btnBrowse1.Tag = "Browse1Btn";
-            btnBrowse1.Click += (s, e) =>
-            {
-                BrowseForExecutable(cmb1);
-                pair.Source1 = ReadComboText(cmb1);
-                PushLivePreviewIfActive();
-            };
-            topBlockPanel.Controls.Add(btnBrowse1);
+        RoundedColorSwatch swatch1 = CreateCompactColorSwatch(
+            26,
+            r2Y + PairCardLayout.SwatchOffsetY,
+            24,
+            24,
+            pair.Color1Hex,
+            hex => pair.Color1Hex = hex);
+        topBlockPanel.Controls.Add(swatch1);
 
-            ModernButton btnDown = CreateModernButton("▼", btnArrowLeft, 33, 30, 25, false);
-            btnDown.Tag = "DownBtn";
-            btnDown.Click += (s, e) =>
-            {
-                int curIdx = targetList.IndexOf(pair);
-                if (_isPairListAnimating || curIdx < 0 || curIdx >= targetList.Count - 1) return;
-                AnimateSwapPairCards(host, targetList, curIdx, curIdx + 1);
-            };
-            topBlockPanel.Controls.Add(btnDown);
+        ModernComboBox cmb1 = new ModernComboBox
+        {
+            Left = 56,
+            Top = r2Y + PairCardLayout.ComboOffsetY,
+            Width = comboW,
+            DropDownStyle = ComboBoxStyle.DropDown,
+            Tag = "Source1Combo",
+            BadgeResolver = ResolveDropdownBadge,
+            IconResolver = ResolveDropdownIcon
+        };
+        cmb1.Items.AddRange(options.Cast<object>().ToArray());
+        cmb1.SelectedItem = pair.Source1;
+        if (cmb1.SelectedIndex == -1) cmb1.Text = pair.Source1;
+        cmb1.DropDown += (s, e) =>
+        {
+            _detectedAudio = AudioProcessDetector.Scan();
+            PopulateSingleComboOptions(cmb1, includeGroups: true);
+        };
+        cmb1.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            pair.Source1 = ReadComboText(cmb1);
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        cmb1.TextChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            pair.Source1 = ReadComboText(cmb1);
+            MarkDirty();
+        };
+        topBlockPanel.Controls.Add(cmb1);
 
-            // Tall 2-Row Delete ('X') Button spanning Row 1 and Row 2
-            ModernButton btnDel = CreateModernButton("✕", btnDelLeft, 3, 32, 55, false, isDanger: true);
-            btnDel.Tag = "DeleteBtn";
-            btnDel.Click += (s, e) =>
-            {
-                int curIdx = targetList.IndexOf(pair);
-                if (_isPairListAnimating || curIdx < 0) return;
-                if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
-                {
-                    MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-                AnimateRemovePairCard(host, targetList, curIdx);
-            };
-            topBlockPanel.Controls.Add(btnDel);
+        ModernButton btnBrowse1 = CreateModernButton("Browse", btnActionLeft, r2Y + PairCardLayout.ButtonOffsetY, 94, 25, false);
+        btnBrowse1.Tag = "Browse1Btn";
+        btnBrowse1.Click += (s, e) =>
+        {
+            BrowseForExecutable(cmb1);
+            pair.Source1 = ReadComboText(cmb1);
+            PushLivePreviewIfActive();
+        };
+        topBlockPanel.Controls.Add(btnBrowse1);
 
-            // --- ROW 3 PANEL (Source 2 + Browse ONLY - slides behind topBlockPanel when in Single Mode) ---
-            BufferedPanel row2Panel = new BufferedPanel
-            {
-                Left = 2,
-                Top = isSingle ? 34 : 68,
-                Width = hostW - 4,
-                Height = 30,
-                Visible = !isSingle,
-                BackColor = Color.FromArgb(48, 48, 48),
-                Tag = "Row2Panel"
-            };
+        ModernButton btnDown = CreateModernButton("▼", btnArrowLeft, r2Y + PairCardLayout.ButtonOffsetY, 30, 25, false);
+        btnDown.Tag = "DownBtn";
+        btnDown.Click += (s, e) =>
+        {
+            int curIdx = targetList.IndexOf(pair);
+            if (_isPairListAnimating || curIdx < 0 || curIdx >= targetList.Count - 1) return;
+            AnimateSwapPairCards(host, targetList, curIdx, curIdx + 1);
+        };
+        topBlockPanel.Controls.Add(btnDown);
 
-            Label lblS2 = new Label
+        ModernButton btnDel = CreateModernButton(
+            "✕",
+            btnDelLeft,
+            r1Y + PairCardLayout.ButtonOffsetY,
+            32,
+            PairCardLayout.DeleteButtonHeight,
+            false,
+            isDanger: true);
+        btnDel.Tag = "DeleteBtn";
+        btnDel.Click += (s, e) =>
+        {
+            int curIdx = targetList.IndexOf(pair);
+            if (_isPairListAnimating || curIdx < 0) return;
+            if (_draftSettings.CrossfadeCycleList.Count + _draftSettings.StandalonePairs.Count <= 1)
             {
-                Text = "R:",
-                Left = 6,
-                Top = 5,
-                Width = 18,
-                Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(190, 190, 190)
-            };
-            row2Panel.Controls.Add(lblS2);
+                MessageBox.Show("You must keep at least one source pair.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            AnimateRemovePairCard(host, targetList, curIdx);
+        };
+        topBlockPanel.Controls.Add(btnDel);
 
-            RoundedColorSwatch swatch2 = CreateCompactColorSwatch(26, 2, 24, 24, pair.Color2Hex, hex => pair.Color2Hex = hex);
-            row2Panel.Controls.Add(swatch2);
+        BufferedPanel row2Panel = new BufferedPanel
+        {
+            Left = 2,
+            Top = PairCardLayout.GetRow2PanelTop(isSingle),
+            Width = hostW - 4,
+            Height = PairCardLayout.RowHeight + 2,
+            Visible = !isSingle,
+            BackColor = Color.FromArgb(48, 48, 48),
+            Tag = "Row2Panel"
+        };
 
-            ModernComboBox cmb2 = new ModernComboBox
-            {
-                Left = 56,
-                Top = 1, // Centered vertically on row 3 panel
-                Width = comboW,
-                Height = 25,
-                DropDownStyle = ComboBoxStyle.DropDown,
-                Tag = "Source2Combo",
-                BadgeResolver = ResolveDropdownBadge,
-                IconResolver = ResolveDropdownIcon
-            };
-            cmb2.Items.AddRange(options.Cast<object>().ToArray());
-            cmb2.SelectedItem = pair.Source2;
-            if (cmb2.SelectedIndex == -1) cmb2.Text = pair.Source2;
-            cmb2.DropDown += (s, e) =>
-            {
-                _detectedAudio = AudioProcessDetector.Scan();
-                PopulateSingleComboOptions(cmb2, includeGroups: true);
-            };
-            cmb2.SelectedIndexChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source2 = ReadComboText(cmb2);
-                MarkDirty();
-                PushLivePreviewIfActive();
-            };
-            cmb2.TextChanged += (s, e) =>
-            {
-                if (_isInitializing) return;
-                pair.Source2 = ReadComboText(cmb2);
-                MarkDirty();
-            };
-            row2Panel.Controls.Add(cmb2);
+        Label lblS2 = new Label
+        {
+            Text = "R:",
+            Left = 6,
+            Top = PairCardLayout.LabelOffsetY,
+            Width = 18,
+            Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(190, 190, 190)
+        };
+        row2Panel.Controls.Add(lblS2);
 
-            ModernButton btnBrowse2 = CreateModernButton("Browse", btnActionLeft, 1, 94, 25, false);
-            btnBrowse2.Tag = "Browse2Btn";
-            btnBrowse2.Click += (s, e) =>
-            {
-                BrowseForExecutable(cmb2);
-                pair.Source2 = ReadComboText(cmb2);
-                PushLivePreviewIfActive();
-            };
-            row2Panel.Controls.Add(btnBrowse2);
+        RoundedColorSwatch swatch2 = CreateCompactColorSwatch(
+            26,
+            PairCardLayout.SwatchOffsetY,
+            24,
+            24,
+            pair.Color2Hex,
+            hex => pair.Color2Hex = hex);
+        row2Panel.Controls.Add(swatch2);
 
-        // --- STANDALONE KEYBINDS PANEL (Only used for Standalone Pairs) ---
+        ModernComboBox cmb2 = new ModernComboBox
+        {
+            Left = 56,
+            Top = PairCardLayout.ComboOffsetY,
+            Width = comboW,
+            DropDownStyle = ComboBoxStyle.DropDown,
+            Tag = "Source2Combo",
+            BadgeResolver = ResolveDropdownBadge,
+            IconResolver = ResolveDropdownIcon
+        };
+        cmb2.Items.AddRange(options.Cast<object>().ToArray());
+        cmb2.SelectedItem = pair.Source2;
+        if (cmb2.SelectedIndex == -1) cmb2.Text = pair.Source2;
+        cmb2.DropDown += (s, e) =>
+        {
+            _detectedAudio = AudioProcessDetector.Scan();
+            PopulateSingleComboOptions(cmb2, includeGroups: true);
+        };
+        cmb2.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            pair.Source2 = ReadComboText(cmb2);
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+        cmb2.TextChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            pair.Source2 = ReadComboText(cmb2);
+            MarkDirty();
+        };
+        row2Panel.Controls.Add(cmb2);
+
+        ModernButton btnBrowse2 = CreateModernButton("Browse", btnActionLeft, PairCardLayout.ButtonOffsetY, 94, 25, false);
+        btnBrowse2.Tag = "Browse2Btn";
+        btnBrowse2.Click += (s, e) =>
+        {
+            BrowseForExecutable(cmb2);
+            pair.Source2 = ReadComboText(cmb2);
+            PushLivePreviewIfActive();
+        };
+        row2Panel.Controls.Add(btnBrowse2);
+
         BufferedPanel? bottomPanel = null;
         if (!isCarouselList)
         {
@@ -1577,9 +1724,9 @@ public class SettingsForm : Form
             bottomPanel = new BufferedPanel
             {
                 Left = 2,
-                Top = isSingle ? 66 : 98,
+                Top = PairCardLayout.GetBottomPanelTop(isSingle),
                 Width = hostW - 4,
-                Height = 74,
+                Height = PairCardLayout.BottomPanelHeight,
                 BackColor = Color.FromArgb(48, 48, 48),
                 Tag = "BottomPanel"
             };
@@ -1588,7 +1735,7 @@ public class SettingsForm : Form
             {
                 Text = "Mute:",
                 Left = 6,
-                Top = 4,
+                Top = PairCardLayout.LabelOffsetY,
                 Width = 46,
                 Height = 18,
                 Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
@@ -1599,7 +1746,7 @@ public class SettingsForm : Form
             ModernComboBox cmbPairMute = new ModernComboBox
             {
                 Left = 56,
-                Top = 0,
+                Top = PairCardLayout.ComboOffsetY,
                 Width = comboW,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Tag = "PairMuteCombo"
@@ -1620,10 +1767,11 @@ public class SettingsForm : Form
             int totalRowW = rowRight - rowLeft;
             int colGap = 8;
             int colW = (totalRowW - (colGap * 2)) / 3;
+            int kbTop = PairCardLayout.KeybindColumnsTop;
 
-            AddSideBySideKeybindColumn(bottomPanel, "Fade Left / Down", rowLeft, colW, 28, pair.KeyDown, val => pair.KeyDown = val, 0);
-            AddSideBySideKeybindColumn(bottomPanel, "Fade Right / Up", rowLeft + colW + colGap, colW, 28, pair.KeyUp, val => pair.KeyUp = val, 1);
-            AddSideBySideKeybindColumn(bottomPanel, "Mute Toggle", rowLeft + (colW + colGap) * 2, totalRowW - (colW * 2) - (colGap * 2), 28, pair.KeyMute, val => pair.KeyMute = val, 2);
+            AddSideBySideKeybindColumn(bottomPanel, "Fade Left / Down", rowLeft, colW, kbTop, pair.KeyDown, val => pair.KeyDown = val, 0);
+            AddSideBySideKeybindColumn(bottomPanel, "Fade Right / Up", rowLeft + colW + colGap, colW, kbTop, pair.KeyUp, val => pair.KeyUp = val, 1);
+            AddSideBySideKeybindColumn(bottomPanel, "Mute Toggle", rowLeft + (colW + colGap) * 2, totalRowW - (colW * 2) - (colGap * 2), kbTop, pair.KeyMute, val => pair.KeyMute = val, 2);
 
             pairCard.Controls.Add(bottomPanel);
         }
@@ -1632,7 +1780,6 @@ public class SettingsForm : Form
             pair.UseCustomKeybinds = false;
         }
 
-        // Per-Card Finite State Machine for ControlModeState (Volume / Balance / Crossfade)
         var modeFsm = new StateMachine<ControlModeState>(pair.ModeState);
         modeFsm.ConfigureState(ControlModeState.Volume, onEnter: () =>
         {
@@ -1715,7 +1862,6 @@ public class SettingsForm : Form
         int hostW = Math.Max(442, host.Width);
         List<string> options = GetAvailableSourceOptions();
 
-        // Find the bottom-most existing card without rebuilding the host
         Control? prevCard = null;
         int finalTop = 0;
         foreach (Control c in host.Controls)
@@ -1767,7 +1913,7 @@ public class SettingsForm : Form
             }
 
             double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
-            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
 
             if (t >= 1.0)
             {
@@ -1807,7 +1953,6 @@ public class SettingsForm : Form
             ? host.Controls.Cast<Control>().FirstOrDefault(c => ReferenceEquals(c.Tag, pairAbove))
             : null;
 
-        // Keep the card above visually in front while the removed card slides up behind it
         if (cardAbove != null)
         {
             cardAbove.BringToFront();
@@ -1851,14 +1996,13 @@ public class SettingsForm : Form
             }
 
             double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
-            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
 
             if (t >= 1.0)
             {
                 timer.Stop();
                 timer.Dispose();
 
-                // Remove ONLY the deleted card in-place without clearing or recreating sibling cards!
                 host.SuspendLayout();
                 targetList.RemoveAt(removeIndex);
                 host.Controls.Remove(removingCard);
@@ -1942,11 +2086,10 @@ public class SettingsForm : Form
             }
 
             double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
-            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0)); // Cubic Ease-Out damper
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
 
             if (t >= 1.0)
             {
-                // Snap to exact final positions and swap in data model WITHOUT recreating controls!
                 upperCard.Top = upperTargetTop;
                 lowerCard.Top = lowerTargetTop;
                 timer.Stop();
@@ -1996,6 +2139,57 @@ public class SettingsForm : Form
         parent.Controls.Add(kb);
     }
 
+    private void ToggleGlobalHotkeysShutter()
+    {
+        CancelRecording();
+        _isGlobalKeysExpanded = !_isGlobalKeysExpanded;
+        _globalKeysHeaderBar.Invalidate();
+
+        float startProgress = _globalKeysAnimProgress;
+        float targetProgress = _isGlobalKeysExpanded ? 1f : 0f;
+
+        _globalKeysShutterPanel.Visible = true;
+        _globalKeysHeaderBar.BringToFront();
+
+        _globalKeysAnimTimer?.Stop();
+        _globalKeysAnimTimer?.Dispose();
+
+        const double durationMs = 230.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        _globalKeysAnimTimer = new System.Windows.Forms.Timer { Interval = 15 };
+        _globalKeysAnimTimer.Tick += (s, e) =>
+        {
+            if (_globalKeysHost.IsDisposed)
+            {
+                _globalKeysAnimTimer.Stop();
+                _globalKeysAnimTimer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+            if (t >= 1.0)
+            {
+                _globalKeysAnimProgress = targetProgress;
+                _globalKeysShutterPanel.Top = GlobalKeysHeaderHeight - (int)Math.Round(_globalKeysExpandedContentHeight * (1f - targetProgress));
+                _globalKeysHost.Height = GlobalKeysHeaderHeight + (int)Math.Round(_globalKeysExpandedContentHeight * targetProgress);
+                _globalKeysShutterPanel.Visible = _isGlobalKeysExpanded;
+                _globalKeysAnimTimer.Stop();
+                _globalKeysAnimTimer.Dispose();
+            }
+            else
+            {
+                _globalKeysAnimProgress = startProgress + (targetProgress - startProgress) * ease;
+                _globalKeysShutterPanel.Top = GlobalKeysHeaderHeight - (int)Math.Round(_globalKeysExpandedContentHeight * (1f - _globalKeysAnimProgress));
+                _globalKeysHost.Height = GlobalKeysHeaderHeight + (int)Math.Round(_globalKeysExpandedContentHeight * _globalKeysAnimProgress);
+            }
+
+            ReflowGeneralPage();
+        };
+        _globalKeysAnimTimer.Start();
+    }
+
     private void ReflowGeneralPage()
     {
         if (_cycleListCard == null || _standaloneListCard == null || _globalKeysHost == null)
@@ -2007,7 +2201,10 @@ public class SettingsForm : Form
 
         int keysTop = (cycleCount == 0) ? 42 : (44 + _cycleSlotsHost.Height);
         _globalKeysHost.Top = keysTop;
-        _cycleListCard.Height = _globalKeysHost.Bottom + 10;
+
+        int cycleContentBottom = cycleCount == 0 ? 42 : _cycleSlotsHost.Bottom;
+        int keysContentBottom = _globalKeysHost.Bottom;
+        _cycleListCard.Height = Math.Max(cycleContentBottom, keysContentBottom) + 10;
 
         int standaloneCount = _draftSettings.StandalonePairs.Count;
         _standaloneSlotsHost.Visible = (standaloneCount > 0);
@@ -2058,8 +2255,29 @@ public class SettingsForm : Form
         _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight?.Text ?? "80", 80), 50, 1000);
         _draftSettings.EnableInterpolation = _chkInterpolation?.Checked ?? true;
         _draftSettings.InterpolationSpeed = Math.Clamp(ParseInt(_txtInterpSpeed?.Text ?? "45", 45), 5, 100);
-        _draftSettings.CarouselVisibleNeighbors = (_chkShowCarousel?.Checked ?? true) ? 1.5f : 0.0f;
-        _draftSettings.CarouselMotionStyle = _cmbCarouselStyle?.SelectedItem?.ToString() ?? "3D Floating Pills";
+        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed?.Text ?? "55", 55), 5, 100);
+
+        string mode = _cmbCarouselMode?.SelectedItem?.ToString() ?? "Full Carousel";
+        _draftSettings.CarouselMode = mode;
+        _draftSettings.InvertCarouselScroll = _chkInvertCarouselScroll?.Checked ?? false;
+        _draftSettings.CardOrderDirection = _cmbCardOrder?.SelectedItem?.ToString() ?? "Ascending";
+
+        if (mode == "None")
+        {
+            _draftSettings.CarouselVisibleNeighbors = 0.0f;
+        }
+        else
+        {
+            var selectedStyleState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle?.SelectedItem?.ToString());
+            string styleName = CarouselStyleStateMachine.ToDisplayName(selectedStyleState);
+            _draftSettings.CarouselMotionStyle = styleName;
+            _draftSettings.CarouselVisibleNeighbors = (mode == "Full Carousel") ? 1.5f : 0.0f;
+
+            if (mode == "Full Carousel") _draftSettings.LastFullCarouselStyle = styleName;
+            else if (mode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = styleName;
+        }
+
+        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews?.Checked ?? true;
         _draftSettings.EnableCarouselAnimation = _chkEnableAnimations?.Checked ?? true;
         _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg?.Checked ?? true;
     }
@@ -2079,7 +2297,6 @@ public class SettingsForm : Form
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
         int y = 4;
 
-        // 1. Live Preview Card
         _previewCard = new Win11CardPanel
         {
             Left = 18,
@@ -2116,7 +2333,6 @@ public class SettingsForm : Form
         page.InnerControls.Add(_previewCard);
         y = _previewCard.Bottom + 10;
 
-        // 2. Overlay Style & Colors Card
         _overlayStyleCard = new Win11CardPanel
         {
             Left = 18,
@@ -2273,7 +2489,7 @@ public class SettingsForm : Form
         page.InnerControls.Add(_overlayStyleCard);
         y = _overlayStyleCard.Bottom + 10;
 
-        // 3. Carousel Card
+        // 3. Carousel & Pair Switching Card
         _carouselCard = new Win11CardPanel
         {
             Left = 18,
@@ -2282,11 +2498,35 @@ public class SettingsForm : Form
         };
 
         int cy = 10;
-        AddSectionHeader(_carouselCard, "Carousel", 14, ref cy);
+        AddSectionHeader(_carouselCard, "Pair Switching && Carousel", 14, ref cy);
+
+        Label lblCarouselMode = new Label
+        {
+            Text = "Carousel Mode:",
+            Left = 14,
+            Top = cy + 4,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _carouselCard.Controls.Add(lblCarouselMode);
+
+        _cmbCarouselMode = new ModernComboBox
+        {
+            Left = 185,
+            Top = cy,
+            Width = 265,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _cmbCarouselMode.Items.AddRange(new object[] { "None", "Full Carousel", "Compact Carousel" });
+        _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.CarouselMode) ? "Full Carousel" : _draftSettings.CarouselMode;
+        if (_cmbCarouselMode.SelectedIndex == -1) _cmbCarouselMode.SelectedIndex = 1;
+        _carouselCard.Controls.Add(_cmbCarouselMode);
+        cy += 32;
 
         Label lblCarouselMotion = new Label
         {
-            Text = "Carousel Style:",
+            Text = "Switch Style:",
             Left = 14,
             Top = cy + 4,
             Width = 165,
@@ -2300,65 +2540,34 @@ public class SettingsForm : Form
             Left = 185,
             Top = cy,
             Width = 265,
-            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
-            DropDownStyle = ComboBoxStyle.DropDownList
-        };
-        _cmbCarouselStyle.Items.AddRange(new object[]
-        {
-            "3D Floating Pills",
-            "Fluid Moving Deck",
-            "3D Coverflow Arc",
-            "Stacked Rolodex"
-        });
-        _cmbCarouselStyle.SelectedItem = _draftSettings.CarouselMotionStyle;
-        if (_cmbCarouselStyle.SelectedIndex == -1) _cmbCarouselStyle.SelectedIndex = 0;
-        _cmbCarouselStyle.SelectedIndexChanged += (s, e) =>
-        {
-            _draftSettings.CarouselMotionStyle = _cmbCarouselStyle.SelectedItem?.ToString() ?? "3D Floating Pills";
-            MarkDirty();
-            PushLivePreviewIfActive();
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BadgeResolver = null // No redundant tags needed!
         };
         _carouselCard.Controls.Add(_cmbCarouselStyle);
         cy += 32;
 
-        _chkShowCarousel = new CheckBox
+        _chkCompactNeighborPreviews = new CheckBox
         {
-            Text = "Show carousel when cycling",
-            Checked = _draftSettings.CarouselVisibleNeighbors > 0.05f,
+            Text = "Preview neighboring pairs on sides",
+            Checked = _draftSettings.CompactShowNeighborPreviews,
             Left = 14,
             Top = cy,
             Width = 430,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
-        _chkShowCarousel.CheckedChanged += (s, e) =>
-        {
-            _draftSettings.CarouselVisibleNeighbors = _chkShowCarousel.Checked ? 1.5f : 0.0f;
-            if (_chkEnableAnimations != null) _chkEnableAnimations.Enabled = _chkShowCarousel.Checked;
-            if (_chkCarouselBg != null) _chkCarouselBg.Enabled = _chkShowCarousel.Checked;
-            if (_cmbCarouselStyle != null) _cmbCarouselStyle.Enabled = _chkShowCarousel.Checked;
-            MarkDirty();
-            PushLivePreviewIfActive();
-        };
-        _carouselCard.Controls.Add(_chkShowCarousel);
-        cy += 26;
+        _chkCompactNeighborPreviews.CheckedChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_chkCompactNeighborPreviews);
 
         _chkEnableAnimations = new CheckBox
         {
-            Text = "Carousel animations",
+            Text = "Smooth switch animations",
             Checked = _draftSettings.EnableCarouselAnimation,
-            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
             Left = 14,
             Top = cy,
-            Width = 165,
+            Width = 170,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
-        };
-        _chkEnableAnimations.CheckedChanged += (s, e) =>
-        {
-            _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
-            MarkDirty();
-            PushLivePreviewIfActive();
         };
         _carouselCard.Controls.Add(_chkEnableAnimations);
 
@@ -2366,22 +2575,266 @@ public class SettingsForm : Form
         {
             Text = "Carousel backdrop",
             Checked = _draftSettings.CarouselBackgroundEnabled,
-            Enabled = _draftSettings.CarouselVisibleNeighbors > 0.05f,
             Left = 185,
             Top = cy,
             Width = 265,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
-        _chkCarouselBg.CheckedChanged += (s, e) =>
+        _chkCarouselBg.CheckedChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_chkCarouselBg);
+
+        Label lblCarouselSpeed = new Label
         {
-            _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
+            Text = "Switch Speed (5 - 100):",
+            Left = 14,
+            Top = cy,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _carouselCard.Controls.Add(lblCarouselSpeed);
+
+        _txtCarouselSpeed = new TextBox
+        {
+            Text = _draftSettings.CarouselAnimationSpeed.ToString(),
+            Left = 185,
+            Top = cy,
+            Width = 90,
+            BackColor = Color.FromArgb(48, 48, 48),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        _txtCarouselSpeed.TextChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_txtCarouselSpeed);
+
+        _chkInvertCarouselScroll = new CheckBox
+        {
+            Text = "Invert scroll direction",
+            Checked = _draftSettings.InvertCarouselScroll,
+            Left = 14,
+            Top = cy,
+            Width = 210,
+            Height = 22,
+            ForeColor = Color.FromArgb(230, 230, 230)
+        };
+        _chkInvertCarouselScroll.CheckedChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_chkInvertCarouselScroll);
+
+        Label lblCardOrder = new Label
+        {
+            Text = "Card Order:",
+            Left = 230,
+            Top = cy,
+            Width = 75,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _carouselCard.Controls.Add(lblCardOrder);
+
+        _cmbCardOrder = new ModernComboBox
+        {
+            Left = 310,
+            Top = cy,
+            Width = 140,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _cmbCardOrder.Items.AddRange(new object[] { "Ascending", "Descending" });
+        _cmbCardOrder.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.CardOrderDirection) ? "Ascending" : _draftSettings.CardOrderDirection;
+        if (_cmbCardOrder.SelectedIndex == -1) _cmbCardOrder.SelectedIndex = 0;
+        _cmbCardOrder.SelectedIndexChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_cmbCardOrder);
+
+        _chkEnableAnimations.CheckedChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            var curSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+            _txtCarouselSpeed.Enabled = _chkEnableAnimations.Checked && curSt != CarouselStyleState.CompactInstantCut;
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        _carouselCard.Controls.Add(_chkCarouselBg);
 
-        _carouselCard.FitHeightToContent(12);
+        _cmbCarouselStyle.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
+            var nextState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+            string styleName = CarouselStyleStateMachine.ToDisplayName(nextState);
+
+            _draftSettings.CarouselMotionStyle = styleName;
+            if (mode == "Full Carousel") _draftSettings.LastFullCarouselStyle = styleName;
+            else if (mode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = styleName;
+
+            bool canAnimate = (nextState != CarouselStyleState.CompactInstantCut);
+            _chkEnableAnimations.Enabled = canAnimate;
+            _txtCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+
+        void ApplyCarouselModeLayout(bool animate)
+        {
+            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
+            bool isNone = (mode == "None");
+            bool isFull = (mode == "Full Carousel");
+            bool isCompact = (mode == "Compact Carousel");
+
+            int targetHeight;
+            if (isNone)
+            {
+                targetHeight = _cmbCarouselMode.Bottom + 12;
+            }
+            else
+            {
+                // Populate the style dropdown with ONLY the styles for the active mode
+                // and restore the user's last remembered style for that mode!
+                bool prevInit = _isInitializing;
+                _isInitializing = true;
+                _cmbCarouselStyle.Items.Clear();
+                if (isFull)
+                {
+                    _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.FullDisplayNames);
+                    string remembered = string.IsNullOrWhiteSpace(_draftSettings.LastFullCarouselStyle)
+                        ? "3D Floating Pills"
+                        : _draftSettings.LastFullCarouselStyle;
+                    _cmbCarouselStyle.SelectedItem = remembered;
+                }
+                else
+                {
+                    _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.CompactDisplayNames);
+                    string remembered = string.IsNullOrWhiteSpace(_draftSettings.LastCompactCarouselStyle)
+                        ? "Side Preview Morph"
+                        : _draftSettings.LastCompactCarouselStyle;
+                    _cmbCarouselStyle.SelectedItem = remembered;
+                }
+                if (_cmbCarouselStyle.SelectedIndex == -1 && _cmbCarouselStyle.Items.Count > 0)
+                    _cmbCarouselStyle.SelectedIndex = 0;
+
+                var activeSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+                string activeStyleName = CarouselStyleStateMachine.ToDisplayName(activeSt);
+                _draftSettings.CarouselMotionStyle = activeStyleName;
+                if (isFull) _draftSettings.LastFullCarouselStyle = activeStyleName;
+                else _draftSettings.LastCompactCarouselStyle = activeStyleName;
+
+                bool canAnimate = (activeSt != CarouselStyleState.CompactInstantCut);
+                _chkEnableAnimations.Enabled = canAnimate;
+                _txtCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+                _isInitializing = prevInit;
+
+                // Dynamically stack visible rows with zero empty space!
+                int rowY = _cmbCarouselStyle.Bottom + 7;
+                if (isCompact)
+                {
+                    _chkCompactNeighborPreviews.Top = rowY;
+                    rowY += 26;
+                }
+
+                _chkEnableAnimations.Top = rowY;
+                _chkCarouselBg.Top = rowY;
+                rowY += 28;
+
+                lblCarouselSpeed.Top = rowY + 3;
+                _txtCarouselSpeed.Top = rowY;
+                rowY += 30;
+
+                _chkInvertCarouselScroll.Top = rowY + 2;
+                lblCardOrder.Top = rowY + 4;
+                _cmbCardOrder.Top = rowY;
+                rowY += 25;
+
+                targetHeight = rowY + 12;
+            }
+
+            if (!animate || !this.IsHandleCreated || _isInitializing)
+            {
+                _carouselCardAnimTimer?.Stop();
+                lblCarouselMotion.Visible = !isNone;
+                _cmbCarouselStyle.Visible = !isNone;
+                _chkCompactNeighborPreviews.Visible = isCompact;
+                _chkCarouselBg.Visible = isFull;
+                _chkEnableAnimations.Visible = !isNone;
+                lblCarouselSpeed.Visible = !isNone;
+                _txtCarouselSpeed.Visible = !isNone;
+                _chkInvertCarouselScroll.Visible = !isNone;
+                lblCardOrder.Visible = !isNone;
+                _cmbCardOrder.Visible = !isNone;
+
+                _carouselCard.Height = targetHeight;
+                ReflowPersonalizationPage();
+                return;
+            }
+
+            // Show controls that belong to the target state during the smooth height transition
+            if (!isNone)
+            {
+                lblCarouselMotion.Visible = true;
+                _cmbCarouselStyle.Visible = true;
+                _chkCompactNeighborPreviews.Visible = isCompact;
+                _chkCarouselBg.Visible = isFull;
+                _chkEnableAnimations.Visible = true;
+                lblCarouselSpeed.Visible = true;
+                _txtCarouselSpeed.Visible = true;
+                _chkInvertCarouselScroll.Visible = true;
+                lblCardOrder.Visible = true;
+                _cmbCardOrder.Visible = true;
+            }
+
+            int startHeight = _carouselCard.Height;
+            _carouselCardAnimTimer?.Stop();
+            _carouselCardAnimTimer?.Dispose();
+
+            const double durationMs = 150.0;
+            Stopwatch sw = Stopwatch.StartNew();
+            _carouselCardAnimTimer = new System.Windows.Forms.Timer { Interval = 15 };
+            _carouselCardAnimTimer.Tick += (s, e) =>
+            {
+                if (_carouselCard.IsDisposed)
+                {
+                    _carouselCardAnimTimer.Stop();
+                    return;
+                }
+
+                double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+                float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+                if (t >= 1.0)
+                {
+                    _carouselCardAnimTimer.Stop();
+                    lblCarouselMotion.Visible = !isNone;
+                    _cmbCarouselStyle.Visible = !isNone;
+                    _chkCompactNeighborPreviews.Visible = isCompact;
+                    _chkCarouselBg.Visible = isFull;
+                    _chkEnableAnimations.Visible = !isNone;
+                    lblCarouselSpeed.Visible = !isNone;
+                    _txtCarouselSpeed.Visible = !isNone;
+                    _chkInvertCarouselScroll.Visible = !isNone;
+                    lblCardOrder.Visible = !isNone;
+                    _cmbCardOrder.Visible = !isNone;
+
+                    _carouselCard.Height = targetHeight;
+                }
+                else
+                {
+                    _carouselCard.Height = startHeight + (int)Math.Round((targetHeight - startHeight) * ease);
+                }
+
+                _layoutCard.Top = _carouselCard.Bottom + 10;
+                _behaviorCard.Top = _layoutCard.Bottom + 10;
+                _pagePersonalization?.RecalculateScroll();
+            };
+            _carouselCardAnimTimer.Start();
+        }
+
+        _updateCarouselModeLayout = () => ApplyCarouselModeLayout(animate: false);
+
+        _cmbCarouselMode.SelectedIndexChanged += (s, e) =>
+        {
+            ApplyCarouselModeLayout(animate: !_isInitializing);
+            if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); }
+        };
+
+        ApplyCarouselModeLayout(animate: false);
         page.InnerControls.Add(_carouselCard);
         y = _carouselCard.Bottom + 10;
 
@@ -2791,18 +3244,35 @@ public class SettingsForm : Form
         _chkKeepOverlayAlwaysOn.Checked = settings.KeepOverlayOnWhileSettingsOpen;
         _cmbIdentityMode.SelectedItem = settings.OverlayIdentityMode;
         _cmbLevelMode.SelectedItem = settings.OverlayLevelMode;
-        _cmbCarouselStyle.SelectedItem = settings.CarouselMotionStyle;
-        if (_cmbCarouselStyle.SelectedIndex == -1) _cmbCarouselStyle.SelectedIndex = 0;
+
+        var loadedStyle = CarouselStyleStateMachine.ParseState(settings.CarouselMotionStyle);
+        string loadedStyleName = CarouselStyleStateMachine.ToDisplayName(loadedStyle);
+        if (CarouselStyleStateMachine.IsWideCarousel(loadedStyle))
+            _draftSettings.LastFullCarouselStyle = loadedStyleName;
+        else
+            _draftSettings.LastCompactCarouselStyle = loadedStyleName;
 
         _chkUseSourceBgColors.Checked = settings.UseSourceBackgroundColors;
         _chkFadeBgWithVolume.Checked = settings.FadeBgColorWithVolume;
         _chkFadeBgWithVolume.Enabled = settings.UseSourceBackgroundColors;
-        _chkShowCarousel.Checked = settings.CarouselVisibleNeighbors > 0.05f;
-        _cmbCarouselStyle.Enabled = _chkShowCarousel.Checked;
+        _chkCompactNeighborPreviews.Checked = settings.CompactShowNeighborPreviews;
         _chkEnableAnimations.Checked = settings.EnableCarouselAnimation;
-        _chkEnableAnimations.Enabled = _chkShowCarousel.Checked;
+        _txtCarouselSpeed.Text = settings.CarouselAnimationSpeed.ToString();
         _chkCarouselBg.Checked = settings.CarouselBackgroundEnabled;
-        _chkCarouselBg.Enabled = _chkShowCarousel.Checked;
+
+        if (_cmbCarouselMode != null)
+        {
+            _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(settings.CarouselMode) ? "Full Carousel" : settings.CarouselMode;
+            if (_cmbCarouselMode.SelectedIndex == -1) _cmbCarouselMode.SelectedIndex = 1;
+        }
+        if (_chkInvertCarouselScroll != null) _chkInvertCarouselScroll.Checked = settings.InvertCarouselScroll;
+        if (_cmbCardOrder != null)
+        {
+            _cmbCardOrder.SelectedItem = string.IsNullOrWhiteSpace(settings.CardOrderDirection) ? "Ascending" : settings.CardOrderDirection;
+            if (_cmbCardOrder.SelectedIndex == -1) _cmbCardOrder.SelectedIndex = 0;
+        }
+
+        _updateCarouselModeLayout?.Invoke();
 
         if (_unmutedColorBox != null)
         {
@@ -3287,6 +3757,23 @@ public class SettingsForm : Form
 
         int ParseInt(string text, int defaultVal) => int.TryParse(text, out int val) ? val : defaultVal;
 
+        string savedMode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
+        _draftSettings.CarouselMode = savedMode;
+        _draftSettings.InvertCarouselScroll = _chkInvertCarouselScroll.Checked;
+        _draftSettings.CardOrderDirection = _cmbCardOrder.SelectedItem?.ToString() ?? "Ascending";
+
+        var savedStyle = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+        string savedStyleName = CarouselStyleStateMachine.ToDisplayName(savedStyle);
+        _draftSettings.CarouselMotionStyle = savedStyleName;
+        _draftSettings.CarouselVisibleNeighbors = (savedMode == "Full Carousel") ? 1.5f : 0.0f;
+        if (savedMode == "Full Carousel") _draftSettings.LastFullCarouselStyle = savedStyleName;
+        else if (savedMode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = savedStyleName;
+
+        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews.Checked;
+        _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
+        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed.Text, 55), 5, 100);
+        _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
+
         _draftSettings.CycleNextKey = _kbKeyCycleNext.Binding;
         _draftSettings.QuickSwapKey = _kbKeyCycleNext.Binding;
         _draftSettings.CyclePrevKey = _kbKeyCyclePrev.Binding;
@@ -3309,9 +3796,12 @@ public class SettingsForm : Form
         _draftSettings.OverlayLevelMode = _cmbLevelMode.SelectedItem?.ToString() ?? "Both";
         _draftSettings.UseSourceBackgroundColors = _chkUseSourceBgColors.Checked;
         _draftSettings.FadeBgColorWithVolume = _chkFadeBgWithVolume.Checked;
-        _draftSettings.CarouselVisibleNeighbors = _chkShowCarousel.Checked ? 1.5f : 0.0f;
-        _draftSettings.CarouselMotionStyle = _cmbCarouselStyle.SelectedItem?.ToString() ?? "3D Floating Pills";
+
+        _draftSettings.CarouselMotionStyle = CarouselStyleStateMachine.ToDisplayName(savedStyle);
+        _draftSettings.CarouselVisibleNeighbors = CarouselStyleStateMachine.IsWideCarousel(savedStyle) ? 1.5f : 0.0f;
+        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews.Checked;
         _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
+        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed.Text, 55), 5, 100);
         _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
 
         try

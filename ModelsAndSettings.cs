@@ -101,6 +101,116 @@ public static class ControlModeStateMachine
     }
 }
 
+public enum CarouselStyleState
+{
+    // Wide Styles (Open Full Vertical Carousel)
+    FloatingPills3D,
+    FluidMovingDeck,
+    CoverflowArc3D,
+    StackedRolodex,
+
+    // Compact Styles (Single-Card In-Place Transitions, No Vertical Carousel)
+    CompactSidePreviewMorph,
+    CompactClockFlip,
+    CompactDirectionalSwoosh,
+    CompactLaserWipe,
+    CompactSquashAndStretch,
+    CompactInstantCut
+}
+
+public static class CarouselStyleStateMachine
+{
+    public static readonly object[] FullDisplayNames = new object[]
+    {
+        "3D Floating Pills",
+        "Fluid Moving Deck",
+        "3D Perspective Arc",
+        "Stacked Rolodex"
+    };
+
+    public static readonly object[] CompactDisplayNames = new object[]
+    {
+        "Side Preview Morph",
+        "Split-Flap Clock Flip",
+        "Directional Swoosh",
+        "Laser Wipe Reveal",
+        "Squash && Stretch Push",
+        "Instant Cut"
+    };
+
+    public static readonly object[] AllDisplayNames = new object[]
+    {
+        "3D Floating Pills",
+        "Fluid Moving Deck",
+        "3D Perspective Arc",
+        "Stacked Rolodex",
+        "Side Preview Morph",
+        "Split-Flap Clock Flip",
+        "Directional Swoosh",
+        "Laser Wipe Reveal",
+        "Squash && Stretch Push",
+        "Instant Cut"
+    };
+
+    public static CarouselStyleState ParseState(string? rawStyle)
+    {
+        if (string.IsNullOrWhiteSpace(rawStyle)) return CarouselStyleState.FloatingPills3D;
+        string s = rawStyle.Trim();
+
+        if (s.Contains("Fluid Moving Deck", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.FluidMovingDeck;
+        if (s.Contains("Perspective Arc", StringComparison.OrdinalIgnoreCase) || s.Contains("Coverflow", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CoverflowArc3D;
+        if (s.Contains("Stacked Rolodex", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.StackedRolodex;
+        if (s.Contains("Side Preview Morph", StringComparison.OrdinalIgnoreCase) || s.Contains("Preview Morph", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactSidePreviewMorph;
+        if (s.Contains("Split-Flap", StringComparison.OrdinalIgnoreCase) || s.Contains("Clock Flip", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactClockFlip;
+        if (s.Contains("Directional Swoosh", StringComparison.OrdinalIgnoreCase) || s.Contains("Swoosh", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactDirectionalSwoosh;
+        if (s.Contains("Laser Wipe", StringComparison.OrdinalIgnoreCase) || s.Contains("Line Wipe", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactLaserWipe;
+        if (s.Contains("Squash", StringComparison.OrdinalIgnoreCase) || s.Contains("Stretch", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactSquashAndStretch;
+        if (s.Contains("Instant Cut", StringComparison.OrdinalIgnoreCase))
+            return CarouselStyleState.CompactInstantCut;
+
+        return CarouselStyleState.FloatingPills3D;
+    }
+
+    public static string ToDisplayName(CarouselStyleState state) => state switch
+    {
+        CarouselStyleState.FluidMovingDeck => "Fluid Moving Deck",
+        CarouselStyleState.CoverflowArc3D => "3D Perspective Arc",
+        CarouselStyleState.StackedRolodex => "Stacked Rolodex",
+        CarouselStyleState.CompactSidePreviewMorph => "Side Preview Morph",
+        CarouselStyleState.CompactClockFlip => "Split-Flap Clock Flip",
+        CarouselStyleState.CompactDirectionalSwoosh => "Directional Swoosh",
+        CarouselStyleState.CompactLaserWipe => "Laser Wipe Reveal",
+        CarouselStyleState.CompactSquashAndStretch => "Squash && Stretch Push",
+        CarouselStyleState.CompactInstantCut => "Instant Cut",
+        _ => "3D Floating Pills"
+    };
+
+    public static bool IsWideCarousel(CarouselStyleState state) => state switch
+    {
+        CarouselStyleState.FloatingPills3D => true,
+        CarouselStyleState.FluidMovingDeck => true,
+        CarouselStyleState.CoverflowArc3D => true,
+        CarouselStyleState.StackedRolodex => true,
+        _ => false
+    };
+
+    public static BadgeInfo GetDropdownBadge(string itemText)
+    {
+        var state = ParseState(itemText);
+        return IsWideCarousel(state)
+            ? new BadgeInfo("FULL CAROUSEL", Color.FromArgb(80, 185, 255))
+            : new BadgeInfo("COMPACT", Color.FromArgb(75, 220, 130));
+    }
+}
+
 public readonly struct BadgeInfo
 {
     public string Text { get; }
@@ -323,11 +433,19 @@ public class AppSettings
     public bool FadeBgColorWithVolume { get; set; } = true;
     public bool KeepOverlayOnWhileSettingsOpen { get; set; } = false;
 
+
+    public string CarouselMode { get; set; } = "Full Carousel";
+    public string CarouselMotionStyle { get; set; } = "3D Floating Pills";
+    public string LastFullCarouselStyle { get; set; } = "3D Floating Pills";
+    public string LastCompactCarouselStyle { get; set; } = "Side Preview Morph";
+    public bool InvertCarouselScroll { get; set; } = false;
+    public string CardOrderDirection { get; set; } = "Ascending";
     public float CarouselVisibleNeighbors { get; set; } = 1.5f;
     public bool CarouselBlendColors { get; set; } = true;
-    public string CarouselMotionStyle { get; set; } = "3D Floating Pills";
     public bool EnableCarouselAnimation { get; set; } = true;
+    public int CarouselAnimationSpeed { get; set; } = 55;
     public bool CarouselBackgroundEnabled { get; set; } = true;
+    public bool CompactShowNeighborPreviews { get; set; } = true;
 
     public string OverlayPosition { get; set; } = "Bottom Center";
     public int PopupDurationMs { get; set; } = 2500;
@@ -381,8 +499,15 @@ public class AppSettings
             CarouselVisibleNeighbors = this.CarouselVisibleNeighbors,
             CarouselBlendColors = this.CarouselBlendColors,
             CarouselMotionStyle = this.CarouselMotionStyle,
+            CarouselMode = this.CarouselMode,
+            InvertCarouselScroll = this.InvertCarouselScroll,
+            CardOrderDirection = this.CardOrderDirection,
             EnableCarouselAnimation = this.EnableCarouselAnimation,
+            LastFullCarouselStyle = this.LastFullCarouselStyle,
+            LastCompactCarouselStyle = this.LastCompactCarouselStyle,
+            CarouselAnimationSpeed = this.CarouselAnimationSpeed,
             CarouselBackgroundEnabled = this.CarouselBackgroundEnabled,
+            CompactShowNeighborPreviews = this.CompactShowNeighborPreviews,
             OverlayPosition = this.OverlayPosition,
             PopupDurationMs = this.PopupDurationMs,
             OverlayOpacity = this.OverlayOpacity,
