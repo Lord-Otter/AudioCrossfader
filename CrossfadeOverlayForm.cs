@@ -90,8 +90,8 @@ public class CrossfadeOverlayForm : Form
     private int _cycleCountdownMs = 0;
     private float _wheelExpansion = 0f;
     private float _wheelScrollOffset = 0f;
+    private float _neighborPreviewVisibility = 0f;
 
-    // Compact transition state (1.0 = start of transition, 0.0 = settled)
     private float _compactTransitionProgress = 0f;
     private int _compactTransitionDir = 1;
     private CycleDisplayItem _outgoingCompactItem;
@@ -146,6 +146,8 @@ public class CrossfadeOverlayForm : Form
         _settings = settings.Clone();
         _targetDeviceName = targetDeviceName;
         _assignedPosition = assignedPosition ?? settings.OverlayPosition;
+        _carouselStyleMachine = new StateMachine<CarouselStyleState>(
+            CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle, _settings.CarouselMode));
 
         this.FormBorderStyle = FormBorderStyle.None;
         this.StartPosition = FormStartPosition.Manual;
@@ -157,9 +159,7 @@ public class CrossfadeOverlayForm : Form
 
         SyncCycleItemsFromSettings(_settings, out int activeIdx);
         _cycleActiveIndex = activeIdx;
-
-        _carouselStyleMachine = new StateMachine<CarouselStyleState>(
-            CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle));
+        
         ConfigureCarouselStyleStateMachine();
 
         UpdateFixedCanvasGeometry();
@@ -180,6 +180,7 @@ public class CrossfadeOverlayForm : Form
 
     private void ConfigureCarouselStyleStateMachine()
     {
+        // Full Carousel Styles
         _carouselStyleMachine.ConfigureState(CarouselStyleState.FloatingPills3D,
             onEnter: () => _activeStyleRenderAction = RenderFloatingPillsStyle);
 
@@ -195,22 +196,50 @@ public class CrossfadeOverlayForm : Form
             onEnter: () => _activeStyleRenderAction = (g, heroRect, baseH, scale) =>
                 RenderWideDeckOrder(g, heroRect, baseH, scale, DrawStackedRolodexCard));
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactSidePreviewMorph,
-            onEnter: () => _activeStyleRenderAction = DrawCompactSidePreviewMorphHero);
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CylinderFacets3D,
+            onEnter: () => _activeStyleRenderAction = (g, heroRect, baseH, scale) =>
+                RenderWideDeckOrder(g, heroRect, baseH, scale, DrawCylinderFacetCard));
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactClockFlip,
+        // Compact Carousel Styles (Top & Bottom Previews + Vertical Transitions)
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactTopBottomMorph,
+            onEnter: () => _activeStyleRenderAction = DrawCompactTopBottomMorphHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactCardFlip,
+            onEnter: () => _activeStyleRenderAction = DrawCompactCardFlipHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactVerticalClockFlip,
             onEnter: () => _activeStyleRenderAction = DrawCompactClockFlipHero);
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactDirectionalSwoosh,
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactVerticalSwoosh,
+            onEnter: () => _activeStyleRenderAction = DrawCompactVerticalSwooshHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactVerticalLaserWipe,
+            onEnter: () => _activeStyleRenderAction = DrawCompactVerticalLaserWipeHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactVerticalSquashStretch,
+            onEnter: () => _activeStyleRenderAction = DrawCompactVerticalSquashStretchHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactVerticalInstantCut,
+            onEnter: () => _activeStyleRenderAction = (g, heroRect, baseH, scale) =>
+                DrawStandardHeroCard(g, heroRect, scale));
+
+        // Minimal Carousel Styles (Left & Right Side Previews + Horizontal Transitions)
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalSidePreviewMorph,
+            onEnter: () => _activeStyleRenderAction = DrawMinimalSidePreviewMorphHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalCardFlip,
+            onEnter: () => _activeStyleRenderAction = DrawMinimalCardFlipHero);
+
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalDirectionalSwoosh,
             onEnter: () => _activeStyleRenderAction = DrawCompactSwooshHero);
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactLaserWipe,
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalLaserWipe,
             onEnter: () => _activeStyleRenderAction = DrawCompactLaserWipeHero);
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactSquashAndStretch,
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalSquashAndStretch,
             onEnter: () => _activeStyleRenderAction = DrawCompactSquashStretchHero);
 
-        _carouselStyleMachine.ConfigureState(CarouselStyleState.CompactInstantCut,
+        _carouselStyleMachine.ConfigureState(CarouselStyleState.MinimalInstantCut,
             onEnter: () => _activeStyleRenderAction = (g, heroRect, baseH, scale) =>
                 DrawStandardHeroCard(g, heroRect, scale));
 
@@ -235,41 +264,56 @@ public class CrossfadeOverlayForm : Form
         bool wideCarouselAllowed = !_suppressCarousel && isWideStyle && _cycleItems.Count > 1;
         float targetExpansion = (wideCarouselAllowed && _cycleCountdownMs > 0) ? 1.0f : 0.0f;
 
-        int rawCarouselSpeed = Math.Clamp(_settings.CarouselAnimationSpeed, 5, 100);
+        string previewMode = _settings.NeighborPreviewVisibility ?? "While Switching";
+        float targetPreviewVis = (_suppressCarousel || _cycleItems.Count <= 1 || previewMode == "Off")
+            ? 0f
+            : (previewMode == "Always" ? 1f : (_cycleCountdownMs > 0 ? 1f : 0f));
 
-        if (!_settings.EnableCarouselAnimation || currentStyle == CarouselStyleState.CompactInstantCut || rawCarouselSpeed >= 100)
+        int rawOpenSpeed = Math.Clamp(_settings.CarouselOpenSpeed, 5, 100);
+        int rawScrollSpeed = Math.Clamp(_settings.CarouselAnimationSpeed, 5, 100);
+        bool isInstant = CarouselStyleStateMachine.IsInstantCut(currentStyle);
+
+        // 1. Carousel Opening / Closing Animation Speed
+        if (!_settings.EnableCarouselAnimation || isInstant || rawOpenSpeed >= 100)
         {
             _wheelExpansion = targetExpansion;
+            _neighborPreviewVisibility = targetPreviewVis;
+        }
+        else
+        {
+            float oSpeed = rawOpenSpeed / 100.0f;
+            float openLerp = Math.Clamp(oSpeed * 0.65f, 0.04f, 0.88f);
+
+            if (Math.Abs(targetExpansion - _wheelExpansion) > 0.003f)
+                _wheelExpansion += (targetExpansion - _wheelExpansion) * openLerp;
+            else
+                _wheelExpansion = targetExpansion;
+
+            if (Math.Abs(targetPreviewVis - _neighborPreviewVisibility) > 0.004f)
+                _neighborPreviewVisibility += (targetPreviewVis - _neighborPreviewVisibility) * openLerp;
+            else
+                _neighborPreviewVisibility = targetPreviewVis;
+        }
+
+        // 2. Carousel Scrolling / Switching Speed
+        if (!_settings.EnableCarouselAnimation || isInstant || rawScrollSpeed >= 100)
+        {
             _wheelScrollOffset = 0f;
             _compactTransitionProgress = 0f;
         }
         else
         {
-            float cSpeed = rawCarouselSpeed / 100.0f;
-            float wheelLerp = Math.Clamp(cSpeed * 0.65f, 0.04f, 0.88f);
-
-            if (Math.Abs(targetExpansion - _wheelExpansion) > 0.003f)
-            {
-                _wheelExpansion += (targetExpansion - _wheelExpansion) * wheelLerp;
-            }
-            else
-            {
-                _wheelExpansion = targetExpansion;
-            }
+            float sSpeed = rawScrollSpeed / 100.0f;
+            float scrollLerp = Math.Clamp(sSpeed * 0.65f, 0.04f, 0.88f);
 
             if (Math.Abs(_wheelScrollOffset) > 0.004f)
-            {
-                _wheelScrollOffset *= (1.0f - Math.Clamp(wheelLerp * 0.82f, 0.05f, 0.85f));
-            }
+                _wheelScrollOffset *= (1.0f - Math.Clamp(scrollLerp * 0.82f, 0.05f, 0.85f));
             else
-            {
                 _wheelScrollOffset = 0f;
-            }
 
-            // Advance compact transition progress smoothly from 1.0 -> 0.0 based on CarouselAnimationSpeed
             if (_compactTransitionProgress > 0.002f)
             {
-                float step = Math.Clamp(0.015f + cSpeed * 0.165f, 0.022f, 0.18f);
+                float step = Math.Clamp(0.015f + sSpeed * 0.165f, 0.022f, 0.18f);
                 _compactTransitionProgress = Math.Max(0f, _compactTransitionProgress - step);
             }
             else
@@ -493,7 +537,7 @@ public class CrossfadeOverlayForm : Form
             SyncCycleItemsFromSettings(_settings, out int activeIdx);
             _cycleActiveIndex = activeIdx;
 
-            CarouselStyleState nextStyle = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle);
+            CarouselStyleState nextStyle = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle, _settings.CarouselMode);
             _carouselStyleMachine.TransitionTo(nextStyle, force: true);
 
             UpdateFixedCanvasGeometry();
@@ -505,7 +549,7 @@ public class CrossfadeOverlayForm : Form
                 {
                     _cycleCountdownMs = _totalDurationMs;
 
-                    if (forcePopup && !CarouselStyleStateMachine.IsWideCarousel(nextStyle) && nextStyle != CarouselStyleState.CompactInstantCut)
+                    if (forcePopup && !CarouselStyleStateMachine.IsWideCarousel(nextStyle) && !CarouselStyleStateMachine.IsInstantCut(nextStyle))
                     {
                         int prevIdx = (_cycleActiveIndex - 1 + _cycleItems.Count) % _cycleItems.Count;
                         _outgoingCompactItem = _cycleItems[prevIdx];
@@ -535,8 +579,6 @@ public class CrossfadeOverlayForm : Form
             var newList = items ?? new List<CycleDisplayItem>();
             int newActive = Math.Max(0, activeIndex);
 
-            // Always compute the true outgoing pair from the actual stepDirection
-            // BEFORE applying any visual scroll/order inversions so it NEVER turns into Pair 3!
             if (newList.Count > 1)
             {
                 int prevIdx = ((newActive - stepDirection) % newList.Count + newList.Count) % newList.Count;
@@ -548,7 +590,6 @@ public class CrossfadeOverlayForm : Form
                 _hasOutgoingCompactItem = false;
             }
 
-            // Immediately sync active card identity/colors with the new active slot on the UI thread
             if (newActive >= 0 && newActive < newList.Count)
             {
                 var activeItem = newList[newActive];
@@ -568,20 +609,17 @@ public class CrossfadeOverlayForm : Form
 
             float scrollSign = _settings.InvertCarouselScroll ? -1.0f : 1.0f;
 
-            // Default (un-inverted):
-            // - Full Carousel: Next Pair (+1) sits at slot -1 (above) and moves DOWN (-1.0f -> 0.0f) into center.
-            // - Compact Carousel: Next Pair (+1) sits on the LEFT and pushes everything to the RIGHT (+1).
             _wheelScrollOffset = (stepDirection >= 0 ? 1.0f : -1.0f) * scrollSign;
             _compactTransitionDir = (stepDirection >= 0 ? 1 : -1) * (_settings.InvertCarouselScroll ? -1 : 1);
 
-            var styleState = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle);
+            var styleState = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle, _settings.CarouselMode);
             if (_carouselStyleMachine.CurrentState != styleState)
             {
                 _carouselStyleMachine.TransitionTo(styleState, force: true);
             }
 
             bool isNoneMode = string.Equals(_settings.CarouselMode, "None", StringComparison.OrdinalIgnoreCase);
-            _compactTransitionProgress = (!isNoneMode && _settings.EnableCarouselAnimation && styleState != CarouselStyleState.CompactInstantCut)
+            _compactTransitionProgress = (!isNoneMode && _settings.EnableCarouselAnimation && !CarouselStyleStateMachine.IsInstantCut(styleState))
                 ? 1.0f
                 : 0.0f;
 
@@ -678,7 +716,11 @@ public class CrossfadeOverlayForm : Form
     {
         float pillH = Math.Clamp(baseH * 0.50f, 28f, 64f);
         float maxOrbitDist = (baseH / 2f) + (pillH / 2f) + (6f * scale);
-        float wingExtent = ((maxOrbitDist - baseH / 2f) + (pillH * 0.94f)) * _wheelExpansion;
+        float fullWingExtent = (maxOrbitDist - baseH / 2f) + (pillH * 0.94f);
+
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float minWingExtent = alwaysPreviews ? (Math.Clamp(26f * scale, 20f, 40f) * 0.62f + 4f) : 0f;
+        float wingExtent = minWingExtent + (fullWingExtent - minWingExtent) * _wheelExpansion;
 
         float extraW = 18f;
         float containerW = baseW + extraW;
@@ -689,16 +731,27 @@ public class CrossfadeOverlayForm : Form
         return new RectangleF(containerX, topY, containerW - 1f, height - 1f);
     }
 
-    private (RectangleF leftBox, RectangleF rightBox) GetCompactPreviewBoxRects(RectangleF heroRect, float scale, float bump = 0f)
+    private (RectangleF leftBox, RectangleF rightBox) GetMinimalSidePreviewBoxRects(RectangleF heroRect, float scale, float bump = 0f)
     {
         float boxW = Math.Clamp(36f * scale, 28f, 52f);
         float boxH = Math.Clamp(heroRect.Height * 0.68f, 34f, heroRect.Height - 8f);
         float boxY = heroRect.Y + (heroRect.Height - boxH) / 2f;
 
-        // Halfway overlapping the left and right edges of heroRect
         RectangleF leftBox = new RectangleF(heroRect.Left - (boxW * 0.5f) - bump, boxY, boxW, boxH);
         RectangleF rightBox = new RectangleF(heroRect.Right - (boxW * 0.5f) + bump, boxY, boxW, boxH);
         return (leftBox, rightBox);
+    }
+
+    private (RectangleF topBox, RectangleF bottomBox) GetCompactTopBottomPreviewBoxRects(RectangleF heroRect, float scale, float bump = 0f)
+    {
+        float boxW = heroRect.Width * 0.84f;
+        float boxH = Math.Clamp(26f * scale, 20f, 40f);
+        float boxX = heroRect.X + (heroRect.Width - boxW) / 2f;
+        float exposedH = boxH * 0.56f;
+
+        RectangleF topBox = new RectangleF(boxX, heroRect.Top - exposedH - bump, boxW, boxH);
+        RectangleF bottomBox = new RectangleF(boxX, heroRect.Bottom - (boxH - exposedH) + bump, boxW, boxH);
+        return (topBox, bottomBox);
     }
 
     private void DrawOverlayScene(Graphics g)
@@ -720,54 +773,88 @@ public class CrossfadeOverlayForm : Form
             return;
         }
 
-        CarouselStyleState desiredState = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle);
+        CarouselStyleState desiredState = CarouselStyleStateMachine.ParseState(_settings.CarouselMotionStyle, _settings.CarouselMode);
         if (_carouselStyleMachine.CurrentState != desiredState || _activeStyleRenderAction == null)
         {
             _carouselStyleMachine.TransitionTo(desiredState, force: true);
         }
 
         bool isWideStyle = CarouselStyleStateMachine.IsWideCarousel(desiredState);
+        bool isCompactStyle = CarouselStyleStateMachine.IsCompactCarousel(desiredState);
+        bool alwaysShowFullPreviews = isWideStyle &&
+            string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase) &&
+            !_suppressCarousel && _cycleItems.Count > 1;
 
-        // --- 1. WIDE CAROUSEL STYLES ---
-        if (isWideStyle && !_suppressCarousel && _wheelExpansion > 0.01f && _cycleItems.Count > 1)
+        // --- 1. FULL CAROUSEL STYLES ---
+        if (isWideStyle && !_suppressCarousel && _cycleItems.Count > 1 && (_wheelExpansion > 0.01f || alwaysShowFullPreviews))
         {
-            RectangleF containerRect = GetCarouselContainerRect(baseW, baseH, scale);
-            float containerRadius = GetWin11CornerRadius(scale, large: true);
-
-            using GraphicsPath containerPath = Win11CardPanel.CreateRoundRectF(containerRect, containerRadius);
-
-            if (_settings.CarouselBackgroundEnabled)
+            if (_wheelExpansion > 0.01f)
             {
-                int backdropAlpha = (int)Math.Clamp(242 * _wheelExpansion, 0, 242);
-                using SolidBrush backdropBrush = new SolidBrush(Color.FromArgb(backdropAlpha, BackdropCharcoal));
-                g.FillPath(backdropBrush, containerPath);
+                RectangleF containerRect = GetCarouselContainerRect(baseW, baseH, scale);
+                float containerRadius = GetWin11CornerRadius(scale, large: true);
+
+                using GraphicsPath containerPath = Win11CardPanel.CreateRoundRectF(containerRect, containerRadius);
+
+                if (_settings.CarouselBackgroundEnabled)
+                {
+                    int backdropAlpha = (int)Math.Clamp(242 * _wheelExpansion, 0, 242);
+                    using SolidBrush backdropBrush = new SolidBrush(Color.FromArgb(backdropAlpha, BackdropCharcoal));
+                    g.FillPath(backdropBrush, containerPath);
+                }
+
+                GraphicsState clipState = g.Save();
+                g.SetClip(containerPath, CombineMode.Intersect);
+
+                _activeStyleRenderAction?.Invoke(g, heroRect, baseH, scale);
+
+                g.Restore(clipState);
+
+                if (_settings.CarouselBackgroundEnabled)
+                {
+                    using Pen outerFramePen = new Pen(Color.FromArgb((int)(85 * _wheelExpansion), 255, 255, 255), 1.3f);
+                    g.DrawPath(outerFramePen, containerPath);
+                }
             }
-
-            GraphicsState clipState = g.Save();
-            g.SetClip(containerPath, CombineMode.Intersect);
-
-            _activeStyleRenderAction?.Invoke(g, heroRect, baseH, scale);
-
-            g.Restore(clipState);
-
-            if (_settings.CarouselBackgroundEnabled)
+            else
             {
-                using Pen outerFramePen = new Pen(Color.FromArgb((int)(85 * _wheelExpansion), 255, 255, 255), 1.3f);
-                g.DrawPath(outerFramePen, containerPath);
+                DrawCompactTopBottomPreviewBoxes(g, heroRect, scale, 1.0f);
+                DrawStandardHeroCard(g, heroRect, scale);
             }
             return;
         }
 
-        // --- 2. COMPACT SINGLE-CARD STYLES (+ HALF-OVERLAPPING SIDE NEIGHBOR PREVIEWS) ---
-        bool showPreviews = !isWideStyle && !_suppressCarousel && _settings.CompactShowNeighborPreviews && _cycleItems.Count > 1;
-        bool isAnimatingMorph = !isWideStyle && desiredState == CarouselStyleState.CompactSidePreviewMorph && _compactTransitionProgress > 0.005f && _hasOutgoingCompactItem;
-
-        if (showPreviews && !isAnimatingMorph)
+        // --- 2. COMPACT CAROUSEL STYLES (TOP & BOTTOM PREVIEWS) ---
+        if (isCompactStyle)
         {
-            DrawCompactNeighborPreviewBoxes(g, heroRect, scale);
+            bool styleDrawsOwnPreviews = (desiredState == CarouselStyleState.CompactTopBottomMorph) &&
+                                         _compactTransitionProgress > 0.005f && _hasOutgoingCompactItem;
+
+            if (_neighborPreviewVisibility > 0.01f && !styleDrawsOwnPreviews && _cycleItems.Count > 1)
+            {
+                DrawCompactTopBottomPreviewBoxes(g, heroRect, scale, _neighborPreviewVisibility);
+            }
+
+            if (_compactTransitionProgress > 0.005f && _hasOutgoingCompactItem)
+            {
+                _activeStyleRenderAction?.Invoke(g, heroRect, baseH, scale);
+            }
+            else
+            {
+                DrawStandardHeroCard(g, heroRect, scale);
+            }
+            return;
         }
 
-        if (!isWideStyle && _compactTransitionProgress > 0.005f && _hasOutgoingCompactItem)
+        // --- 3. MINIMAL CAROUSEL STYLES (LEFT & RIGHT SIDE PREVIEWS) ---
+        bool minimalStyleDrawsOwnPreviews = (desiredState == CarouselStyleState.MinimalSidePreviewMorph) &&
+                                            _compactTransitionProgress > 0.005f && _hasOutgoingCompactItem;
+
+        if (_neighborPreviewVisibility > 0.01f && !minimalStyleDrawsOwnPreviews && _cycleItems.Count > 1)
+        {
+            DrawMinimalSidePreviewBoxes(g, heroRect, scale, _neighborPreviewVisibility);
+        }
+
+        if (_compactTransitionProgress > 0.005f && _hasOutgoingCompactItem)
         {
             _activeStyleRenderAction?.Invoke(g, heroRect, baseH, scale);
         }
@@ -781,14 +868,13 @@ public class CrossfadeOverlayForm : Form
     {
         float radius = GetWin11CornerRadius(scale);
 
-        // Subtle elevation shadow so the main card pops above half-overlapping side preview boxes
-        if (!_suppressCarousel && _settings.CompactShowNeighborPreviews && _cycleItems.Count > 1)
+        if (!_suppressCarousel && _neighborPreviewVisibility > 0.01f && _cycleItems.Count > 1)
         {
             for (int s = 2; s >= 1; s--)
             {
                 RectangleF shadowRect = RectangleF.Inflate(heroRect, s * 1.8f, s * 1.8f);
                 using GraphicsPath shadowPath = Win11CardPanel.CreateRoundRectF(shadowRect, radius + s);
-                using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb(75 / s, 0, 0, 0));
+                using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb((int)(75 * _neighborPreviewVisibility) / s, 0, 0, 0));
                 g.FillPath(shadowBrush, shadowPath);
             }
         }
@@ -812,6 +898,7 @@ public class CrossfadeOverlayForm : Form
     private int GetCarouselItemIndexForSlot(int slotOffset)
     {
         int count = _cycleItems.Count;
+        if (count <= 0) return 0;
         int orderSign = string.Equals(_settings.CardOrderDirection, "Descending", StringComparison.OrdinalIgnoreCase) ? 1 : -1;
         int listDelta = slotOffset * orderSign;
         return ((_cycleActiveIndex + listDelta) % count + count) % count;
@@ -825,7 +912,7 @@ public class CrossfadeOverlayForm : Form
         WideCardDrawer drawer,
         bool drawHeroDropShadow = false)
     {
-        int[] deckOrder = new[] { -2, 2, -1, 1, 0 };
+        int[] deckOrder = new[] { -3, 3, -2, 2, -1, 1, 0 };
         foreach (int offset in deckOrder)
         {
             if (drawHeroDropShadow && offset == 0 && _wheelExpansion > 0.02f)
@@ -845,9 +932,6 @@ public class CrossfadeOverlayForm : Form
             }
 
             int itemIdx = GetCarouselItemIndexForSlot(offset);
-            // Subtracting _wheelScrollOffset (which starts at +1.0f on Next Pair and decays to 0.0f)
-            // makes the new active card (offset = 0) start at -1.0f (above) and slide DOWN to 0.0f (center),
-            // while the old active card (now at offset = +1, below) starts at 0.0f (center) and slides DOWN to +1.0f (below)!
             float visualOffset = offset - _wheelScrollOffset;
             drawer(g, _cycleItems[itemIdx], offset == 0, visualOffset, heroRect, baseH, scale);
         }
@@ -886,24 +970,558 @@ public class CrossfadeOverlayForm : Form
         }
     }
 
+    private void DrawMinimalSidePreviewBoxes(Graphics g, RectangleF heroRect, float scale, float visibility)
+    {
+        int count = _cycleItems.Count;
+        if (count < 2 || visibility <= 0.01f) return;
+
+        int leftIdx = GetCarouselItemIndexForSlot(-1);
+        int rightIdx = GetCarouselItemIndexForSlot(1);
+
+        float bump = MathF.Sin((1f - _compactTransitionProgress) * MathF.PI) * 2.5f * scale * (_compactTransitionProgress > 0f ? 1f : 0f);
+        var (leftBox, rightBox) = GetMinimalSidePreviewBoxRects(heroRect, scale, bump);
+
+        int alpha = (int)Math.Clamp(230f * visibility, 0f, 230f);
+        DrawSingleNeighborPreviewBox(g, leftBox, _cycleItems[leftIdx], scale, isLeftSide: true, alpha: alpha);
+        DrawSingleNeighborPreviewBox(g, rightBox, _cycleItems[rightIdx], scale, isLeftSide: false, alpha: alpha);
+    }
+
+    private void DrawCompactTopBottomPreviewBoxes(Graphics g, RectangleF heroRect, float scale, float visibility)
+    {
+        int count = _cycleItems.Count;
+        if (count < 2 || visibility <= 0.01f) return;
+
+        int topIdx = GetCarouselItemIndexForSlot(-1);
+        int botIdx = GetCarouselItemIndexForSlot(1);
+
+        float bump = MathF.Sin((1f - _compactTransitionProgress) * MathF.PI) * 2.5f * scale * (_compactTransitionProgress > 0f ? 1f : 0f);
+        var (topBox, bottomBox) = GetCompactTopBottomPreviewBoxRects(heroRect, scale, bump);
+
+        int alpha = (int)Math.Clamp(235f * visibility, 0f, 235f);
+        DrawSingleTopBottomPreviewBar(g, topBox, _cycleItems[topIdx], scale, isTopSide: true, alpha: alpha);
+        DrawSingleTopBottomPreviewBar(g, bottomBox, _cycleItems[botIdx], scale, isTopSide: false, alpha: alpha);
+    }
+
+    private void DrawSingleTopBottomPreviewBar(Graphics g, RectangleF barRect, CycleDisplayItem item, float scale, bool isTopSide, int alpha = 235)
+    {
+        if (barRect.Width <= 8f || barRect.Height <= 4f || alpha <= 8) return;
+
+        float radius = Math.Clamp(7f * scale, 5f, 12f);
+        Color rawC1 = ParseOverlayColor(item.Color1Hex, Color.FromArgb(40, 80, 120));
+        Color rawC2 = ParseOverlayColor(item.Color2Hex, Color.FromArgb(95, 45, 85));
+
+        Color surfaceBase = Color.FromArgb(26, 27, 32);
+        Color col1 = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(surfaceBase, rawC1, 0.68f))
+            : surfaceBase;
+        Color col2 = item.IsSingleSource
+            ? col1
+            : (_settings.UseSourceBackgroundColors
+                ? EnsureReadableBackdrop(ColorLerp(surfaceBase, rawC2, 0.68f))
+                : surfaceBase);
+
+        using GraphicsPath barPath = Win11CardPanel.CreateRoundRectF(barRect, radius);
+        FillRoundedCardGradient(g, barPath, barRect, Color.FromArgb(alpha, col1), Color.FromArgb(alpha, col2));
+
+        float exposedH = barRect.Height * 0.56f;
+        RectangleF visibleLip = isTopSide
+            ? new RectangleF(barRect.X, barRect.Y + 1f, barRect.Width, exposedH)
+            : new RectangleF(barRect.X, barRect.Bottom - exposedH - 1f, barRect.Width, exposedH);
+
+        int textAlpha = (int)Math.Clamp(alpha * 0.96f, 0f, 245f);
+        bool showName = _settings.OverlayIdentityMode == "Name" || _settings.OverlayIdentityMode == "Both";
+        bool showIcon = _settings.OverlayIdentityMode == "Icon" || _settings.OverlayIdentityMode == "Both";
+
+        if (item.IsSingleSource)
+        {
+            RectangleF centerZone = new RectangleF(visibleLip.X + 12f * scale, visibleLip.Y, visibleLip.Width - 24f * scale, visibleLip.Height);
+            DrawCenteredPillIdentity(g, centerZone, item.Label1, item.RawSource1, textAlpha, scale * 0.72f, showName, showIcon);
+        }
+        else
+        {
+            float cx = visibleLip.X + visibleLip.Width / 2f;
+            RectangleF leftZone = new RectangleF(visibleLip.X + 10f * scale, visibleLip.Y, (visibleLip.Width / 2f) - 18f * scale, visibleLip.Height);
+            RectangleF rightZone = new RectangleF(cx + 8f * scale, visibleLip.Y, (visibleLip.Width / 2f) - 18f * scale, visibleLip.Height);
+            DrawPillSideIdentity(g, leftZone, item.Label1, item.RawSource1, textAlpha, scale * 0.72f, showName, showIcon, isRightSide: false);
+            DrawPillSideIdentity(g, rightZone, item.Label2, item.RawSource2, textAlpha, scale * 0.72f, showName, showIcon, isRightSide: true);
+        }
+
+        using Pen borderPen = new Pen(Color.FromArgb((int)(alpha * 0.60f), 255, 255, 255), 1.1f);
+        g.DrawPath(borderPen, barPath);
+    }
+
+    private static RectangleF LerpRectF(RectangleF a, RectangleF b, float t)
+    {
+        return new RectangleF(
+            a.X + (b.X - a.X) * t,
+            a.Y + (b.Y - a.Y) * t,
+            a.Width + (b.Width - a.Width) * t,
+            a.Height + (b.Height - a.Height) * t);
+    }
+
+    private void DrawMinimalSidePreviewMorphHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
+
+        var (leftPreviewRect, rightPreviewRect) = GetMinimalSidePreviewBoxRects(heroRect, scale);
+
+        RectangleF incomingStartRect = _compactTransitionDir >= 0 ? leftPreviewRect : rightPreviewRect;
+        RectangleF outgoingEndRect = _compactTransitionDir >= 0 ? rightPreviewRect : leftPreviewRect;
+
+        if (!_suppressCarousel && _neighborPreviewVisibility > 0.01f && _cycleItems.Count > 1)
+        {
+            int leftIdx = GetCarouselItemIndexForSlot(-1);
+            int rightIdx = GetCarouselItemIndexForSlot(1);
+
+            // 1a. The newly arriving preview box on the side that just vacated fades in
+            int inPreviewAlpha = (int)(230 * ease * _neighborPreviewVisibility);
+            if (_compactTransitionDir >= 0)
+                DrawSingleNeighborPreviewBox(g, leftPreviewRect, _cycleItems[leftIdx], scale, isLeftSide: true, alpha: inPreviewAlpha);
+            else
+                DrawSingleNeighborPreviewBox(g, rightPreviewRect, _cycleItems[rightIdx], scale, isLeftSide: false, alpha: inPreviewAlpha);
+
+            // 1b. The old neighbor preview being replaced by the hero card recedes outward, shrinks slightly, and fades out smoothly!
+            float recedeFade = Math.Clamp(1.0f - ease * 1.15f, 0f, 1f);
+            int outPreviewAlpha = (int)(230 * recedeFade * _neighborPreviewVisibility);
+            if (outPreviewAlpha > 8)
+            {
+                int oldReplacedIdx = _compactTransitionDir >= 0
+                    ? GetCarouselItemIndexForSlot(2)
+                    : GetCarouselItemIndexForSlot(-2);
+                float shiftOutX = (_compactTransitionDir >= 0 ? 1f : -1f) * (14f * scale * ease);
+                float shrinkH = outgoingEndRect.Height * (1.0f - 0.25f * ease);
+                float shrinkW = outgoingEndRect.Width * (1.0f - 0.20f * ease);
+                RectangleF recedingRect = new RectangleF(
+                    outgoingEndRect.X + shiftOutX + (outgoingEndRect.Width - shrinkW) / 2f,
+                    outgoingEndRect.Y + (outgoingEndRect.Height - shrinkH) / 2f,
+                    shrinkW,
+                    shrinkH);
+                DrawSingleNeighborPreviewBox(g, recedingRect, _cycleItems[oldReplacedIdx], scale * (1f - 0.15f * ease), isLeftSide: _compactTransitionDir < 0, alpha: outPreviewAlpha);
+            }
+        }
+
+        // 2. Outgoing hero card shrinks into outgoingEndRect
+        RectangleF outRect = LerpRectF(heroRect, outgoingEndRect, ease);
+        float outEmphasis = Math.Clamp(1.0f - ease * 1.25f, 0f, 1f);
+        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+            _outgoingCompactItem.Color1Hex,
+            _outgoingCompactItem.Color2Hex,
+            _outgoingCompactItem.IsSingleSource);
+
+        float outRadius = Math.Clamp(6f * scale + (GetWin11CornerRadius(scale) - 6f * scale) * (1f - ease), 4f, 16f);
+        using (GraphicsPath outPath = Win11CardPanel.CreateRoundRectF(outRect, outRadius))
+        {
+            FillRoundedCardGradient(g, outPath, outRect, oldLeftCol, oldRightCol);
+            if (outEmphasis > 0.08f)
+            {
+                DrawActiveHUDContent(
+                    g, outRect,
+                    _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                    _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                    _app1Vol, _app2Vol, scale * (0.65f + 0.35f * (1f - ease)), outEmphasis, 240);
+            }
+            using Pen outBorderPen = new Pen(Color.FromArgb(170, 255, 255, 255), 1.2f);
+            g.DrawPath(outBorderPen, outPath);
+        }
+
+        // 3. Incoming preview box expands into heroRect
+        RectangleF inRect = LerpRectF(incomingStartRect, heroRect, ease);
+        float inRadius = Math.Clamp(6f * scale + (GetWin11CornerRadius(scale) - 6f * scale) * ease, 4f, 16f);
+
+        for (int s = 2; s >= 1; s--)
+        {
+            RectangleF shadowRect = RectangleF.Inflate(inRect, s * 1.8f, s * 1.8f);
+            using GraphicsPath shadowPath = Win11CardPanel.CreateRoundRectF(shadowRect, inRadius + s);
+            using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb((int)(80 * ease) / s, 0, 0, 0));
+            g.FillPath(shadowBrush, shadowPath);
+        }
+
+        using (GraphicsPath inPath = Win11CardPanel.CreateRoundRectF(inRect, inRadius))
+        {
+            FillRoundedCardGradient(g, inPath, inRect, _renderedBgLeft, _renderedBgRight);
+            DrawActiveHUDContent(
+                g, inRect,
+                _app1Label, _app2Label,
+                _rawSource1, _rawSource2,
+                _app1Vol, _app2Vol,
+                scale * (0.65f + 0.35f * ease), ease, 255);
+            using Pen inBorderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.4f);
+            g.DrawPath(inBorderPen, inPath);
+        }
+    }
+
+    private void DrawCompactTopBottomMorphHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
+
+        var (topPreviewRect, botPreviewRect) = GetCompactTopBottomPreviewBoxRects(heroRect, scale);
+
+        RectangleF incomingStartRect = _compactTransitionDir >= 0 ? topPreviewRect : botPreviewRect;
+        RectangleF outgoingEndRect = _compactTransitionDir >= 0 ? botPreviewRect : topPreviewRect;
+
+        if (!_suppressCarousel && _neighborPreviewVisibility > 0.01f && _cycleItems.Count > 1)
+        {
+            int topIdx = GetCarouselItemIndexForSlot(-1);
+            int botIdx = GetCarouselItemIndexForSlot(1);
+
+            // 1a. Newly arriving preview bar on the vacated side fades in
+            int inAlpha = (int)(235 * ease * _neighborPreviewVisibility);
+            if (_compactTransitionDir >= 0)
+                DrawSingleTopBottomPreviewBar(g, topPreviewRect, _cycleItems[topIdx], scale, isTopSide: true, alpha: inAlpha);
+            else
+                DrawSingleTopBottomPreviewBar(g, botPreviewRect, _cycleItems[botIdx], scale, isTopSide: false, alpha: inAlpha);
+
+            // 1b. Old neighbor preview bar being replaced by the hero card slides back, shrinks, and fades out smoothly!
+            float recedeFade = Math.Clamp(1.0f - ease * 1.15f, 0f, 1f);
+            int outPreviewAlpha = (int)(235 * recedeFade * _neighborPreviewVisibility);
+            if (outPreviewAlpha > 8)
+            {
+                int oldReplacedIdx = _compactTransitionDir >= 0
+                    ? GetCarouselItemIndexForSlot(2)
+                    : GetCarouselItemIndexForSlot(-2);
+                float shiftOutY = (_compactTransitionDir >= 0 ? 1f : -1f) * (12f * scale * ease);
+                float shrinkW = outgoingEndRect.Width * (1.0f - 0.14f * ease);
+                RectangleF recedingRect = new RectangleF(
+                    outgoingEndRect.X + (outgoingEndRect.Width - shrinkW) / 2f,
+                    outgoingEndRect.Y + shiftOutY,
+                    shrinkW,
+                    outgoingEndRect.Height * (1.0f - 0.15f * ease));
+                DrawSingleTopBottomPreviewBar(g, recedingRect, _cycleItems[oldReplacedIdx], scale * (1f - 0.12f * ease), isTopSide: _compactTransitionDir < 0, alpha: outPreviewAlpha);
+            }
+        }
+
+        // 2. Outgoing hero card shrinks into outgoingEndRect
+        RectangleF outRect = LerpRectF(heroRect, outgoingEndRect, ease);
+        float outEmphasis = Math.Clamp(1.0f - ease * 1.25f, 0f, 1f);
+        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+            _outgoingCompactItem.Color1Hex,
+            _outgoingCompactItem.Color2Hex,
+            _outgoingCompactItem.IsSingleSource);
+
+        float outRadius = Math.Clamp(7f * scale + (GetWin11CornerRadius(scale) - 7f * scale) * (1f - ease), 5f, 16f);
+        using (GraphicsPath outPath = Win11CardPanel.CreateRoundRectF(outRect, outRadius))
+        {
+            FillRoundedCardGradient(g, outPath, outRect, oldLeftCol, oldRightCol);
+            if (outEmphasis > 0.08f)
+            {
+                DrawActiveHUDContent(
+                    g, outRect,
+                    _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                    _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                    _app1Vol, _app2Vol, scale * (0.72f + 0.28f * (1f - ease)), outEmphasis, 240);
+            }
+            using Pen outBorderPen = new Pen(Color.FromArgb(170, 255, 255, 255), 1.2f);
+            g.DrawPath(outBorderPen, outPath);
+        }
+
+        // 3. Incoming preview bar expands into heroRect
+        RectangleF inRect = LerpRectF(incomingStartRect, heroRect, ease);
+        float inRadius = Math.Clamp(7f * scale + (GetWin11CornerRadius(scale) - 7f * scale) * ease, 5f, 16f);
+
+        for (int s = 2; s >= 1; s--)
+        {
+            RectangleF shadowRect = RectangleF.Inflate(inRect, s * 1.8f, s * 1.8f);
+            using GraphicsPath shadowPath = Win11CardPanel.CreateRoundRectF(shadowRect, inRadius + s);
+            using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb((int)(85 * ease) / s, 0, 0, 0));
+            g.FillPath(shadowBrush, shadowPath);
+        }
+
+        using (GraphicsPath inPath = Win11CardPanel.CreateRoundRectF(inRect, inRadius))
+        {
+            FillRoundedCardGradient(g, inPath, inRect, _renderedBgLeft, _renderedBgRight);
+            DrawActiveHUDContent(
+                g, inRect,
+                _app1Label, _app2Label,
+                _rawSource1, _rawSource2,
+                _app1Vol, _app2Vol,
+                scale * (0.72f + 0.28f * ease), ease, 255);
+            using Pen inBorderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.4f);
+            g.DrawPath(inBorderPen, inPath);
+        }
+    }
+
+    // =========================================================================
+    // COMPACT & MINIMAL CARD FLIP (HERO FLIPS VERTICALLY IN PLACE, PREVIEWS STAY STILL)
+    // =========================================================================
+    private void DrawCompactCardFlipHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
+        bool showNewHalf = (ease >= 0.5f);
+        float flipScaleY = Math.Max(0.04f, Math.Abs(MathF.Cos(ease * MathF.PI)));
+
+        // Directional 3D tilt shading: top/bottom edge brightens or darkens depending on flip direction
+        int shadeDelta = (int)((1.0f - flipScaleY) * 145f) * (_compactTransitionDir >= 0 ? (showNewHalf ? 1 : -1) : (showNewHalf ? -1 : 1));
+
+        float radius = GetWin11CornerRadius(scale);
+
+        // Draw elevation shadow behind the flipping hero card so it pops over stationary previews
+        if (!_suppressCarousel && _neighborPreviewVisibility > 0.01f && _cycleItems.Count > 1)
+        {
+            for (int s = 2; s >= 1; s--)
+            {
+                RectangleF shadowRect = RectangleF.Inflate(heroRect, s * 1.8f, s * 1.8f * flipScaleY);
+                using GraphicsPath shadowPath = Win11CardPanel.CreateRoundRectF(shadowRect, radius + s);
+                using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb((int)(75 * _neighborPreviewVisibility) / s, 0, 0, 0));
+                g.FillPath(shadowBrush, shadowPath);
+            }
+        }
+
+        GraphicsState stHero = g.Save();
+        float heroCy = heroRect.Y + heroRect.Height / 2f;
+        g.TranslateTransform(0f, heroCy);
+        g.ScaleTransform(1f, flipScaleY);
+        g.TranslateTransform(0f, -heroCy);
+
+        using GraphicsPath heroPath = Win11CardPanel.CreateRoundRectF(heroRect, radius);
+        if (showNewHalf)
+        {
+            FillRoundedCardGradient(g, heroPath, heroRect, _renderedBgLeft, _renderedBgRight);
+            DrawActiveHUDContent(g, heroRect, _app1Label, _app2Label, _rawSource1, _rawSource2, _app1Vol, _app2Vol, scale, 1.0f);
+        }
+        else
+        {
+            var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+                _outgoingCompactItem.Color1Hex,
+                _outgoingCompactItem.Color2Hex,
+                _outgoingCompactItem.IsSingleSource);
+            FillRoundedCardGradient(g, heroPath, heroRect, oldLeftCol, oldRightCol);
+            DrawActiveHUDContent(
+                g, heroRect,
+                _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                _app1Vol, _app2Vol, scale, 1.0f);
+        }
+
+        if (Math.Abs(shadeDelta) > 4)
+        {
+            Color shadeCol = shadeDelta > 0
+                ? Color.FromArgb(Math.Clamp(shadeDelta, 0, 110), 255, 255, 255)
+                : Color.FromArgb(Math.Clamp(-shadeDelta, 0, 165), 0, 0, 0);
+            using SolidBrush shadeBrush = new SolidBrush(shadeCol);
+            g.FillPath(shadeBrush, heroPath);
+        }
+
+        using Pen borderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.5f);
+        g.DrawPath(borderPen, heroPath);
+        g.Restore(stHero);
+    }
+
+    private void DrawMinimalCardFlipHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        // Minimal Card Flip uses the exact same vertical flip direction as Compact Card Flip!
+        DrawCompactCardFlipHero(g, heroRect, baseH, scale);
+    }
+
+    private void DrawCompactVerticalSwooshHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 1.0f - MathF.Pow(1.0f - t, 3f);
+        float radius = GetWin11CornerRadius(scale);
+
+        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+            _outgoingCompactItem.Color1Hex,
+            _outgoingCompactItem.Color2Hex,
+            _outgoingCompactItem.IsSingleSource);
+
+        using GraphicsPath clipPath = Win11CardPanel.CreateRoundRectF(heroRect, radius);
+        using SolidBrush baseFill = new SolidBrush(BackdropCharcoal);
+        g.FillPath(baseFill, clipPath);
+
+        GraphicsState st = g.Save();
+        g.SetClip(clipPath, CombineMode.Intersect);
+
+        float travel = heroRect.Height * 0.95f;
+        // Next (+1): Top card swooshes DOWN into place
+        float outShiftY = _compactTransitionDir * travel * ease;
+        float inShiftY = -_compactTransitionDir * travel * (1.0f - ease);
+
+        int outAlpha = (int)Math.Clamp((1.0f - ease) * 255f, 0f, 255f);
+        if (outAlpha > 8)
+        {
+            RectangleF outRect = new RectangleF(heroRect.X, heroRect.Y + outShiftY, heroRect.Width, heroRect.Height);
+            using GraphicsPath outPath = Win11CardPanel.CreateRoundRectF(outRect, radius);
+            FillRoundedCardGradient(g, outPath, outRect, Color.FromArgb(outAlpha, oldLeftCol), Color.FromArgb(outAlpha, oldRightCol));
+            DrawActiveHUDContent(
+                g, outRect,
+                _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                _app1Vol, _app2Vol, scale, 1.0f, outAlpha);
+        }
+
+        int inAlpha = (int)Math.Clamp(ease * 255f, 0f, 255f);
+        if (inAlpha > 8)
+        {
+            RectangleF inRect = new RectangleF(heroRect.X, heroRect.Y + inShiftY, heroRect.Width, heroRect.Height);
+            using GraphicsPath inPath = Win11CardPanel.CreateRoundRectF(inRect, radius);
+            FillRoundedCardGradient(g, inPath, inRect, Color.FromArgb(inAlpha, _renderedBgLeft), Color.FromArgb(inAlpha, _renderedBgRight));
+            DrawActiveHUDContent(g, inRect, _app1Label, _app2Label, _rawSource1, _rawSource2, _app1Vol, _app2Vol, scale, 1.0f, inAlpha);
+        }
+
+        g.Restore(st);
+
+        using Pen borderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.5f);
+        g.DrawPath(borderPen, clipPath);
+    }
+
+    private void DrawCompactVerticalLaserWipeHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
+        float radius = GetWin11CornerRadius(scale);
+
+        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+            _outgoingCompactItem.Color1Hex,
+            _outgoingCompactItem.Color2Hex,
+            _outgoingCompactItem.IsSingleSource);
+
+        using GraphicsPath cardPath = Win11CardPanel.CreateRoundRectF(heroRect, radius);
+
+        float lineY = _compactTransitionDir >= 0
+            ? heroRect.Top + heroRect.Height * ease
+            : heroRect.Bottom - heroRect.Height * ease;
+
+        RectangleF newRegion = _compactTransitionDir >= 0
+            ? new RectangleF(heroRect.Left - 2f, heroRect.Top - 2f, heroRect.Width + 4f, (lineY - heroRect.Top) + 2f)
+            : new RectangleF(heroRect.Left - 2f, lineY, heroRect.Width + 4f, (heroRect.Bottom - lineY) + 2f);
+
+        RectangleF oldRegion = _compactTransitionDir >= 0
+            ? new RectangleF(heroRect.Left - 2f, lineY, heroRect.Width + 4f, (heroRect.Bottom - lineY) + 2f)
+            : new RectangleF(heroRect.Left - 2f, heroRect.Top - 2f, heroRect.Width + 4f, (lineY - heroRect.Top) + 2f);
+
+        if (oldRegion.Height > 1f)
+        {
+            GraphicsState stOld = g.Save();
+            g.SetClip(cardPath, CombineMode.Intersect);
+            g.SetClip(oldRegion, CombineMode.Intersect);
+            FillRoundedCardGradient(g, cardPath, heroRect, oldLeftCol, oldRightCol);
+            DrawActiveHUDContent(
+                g, heroRect,
+                _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                _app1Vol, _app2Vol, scale, 1.0f);
+            g.Restore(stOld);
+        }
+
+        if (newRegion.Height > 1f)
+        {
+            GraphicsState stNew = g.Save();
+            g.SetClip(cardPath, CombineMode.Intersect);
+            g.SetClip(newRegion, CombineMode.Intersect);
+            FillRoundedCardGradient(g, cardPath, heroRect, _renderedBgLeft, _renderedBgRight);
+            DrawActiveHUDContent(g, heroRect, _app1Label, _app2Label, _rawSource1, _rawSource2, _app1Vol, _app2Vol, scale, 1.0f);
+            g.Restore(stNew);
+        }
+
+        GraphicsState stLaser = g.Save();
+        g.SetClip(cardPath, CombineMode.Intersect);
+        Color accentGlow = ParseOverlayColor(_settings.UnmutedColor, Color.FromArgb(0, 195, 255));
+        for (int w = 3; w >= 1; w--)
+        {
+            using Pen glowPen = new Pen(Color.FromArgb(75 / w, accentGlow), w * 3.0f * scale);
+            g.DrawLine(glowPen, heroRect.Left, lineY, heroRect.Right, lineY);
+        }
+        using (Pen corePen = new Pen(Color.FromArgb(245, 255, 255, 255), 1.8f * scale))
+        {
+            g.DrawLine(corePen, heroRect.Left, lineY, heroRect.Right, lineY);
+        }
+        g.Restore(stLaser);
+
+        using Pen borderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.5f);
+        g.DrawPath(borderPen, cardPath);
+    }
+
+    private void DrawCompactVerticalSquashStretchHero(Graphics g, RectangleF heroRect, int baseH, float scale)
+    {
+        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
+        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
+        float radius = GetWin11CornerRadius(scale);
+
+        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
+            _outgoingCompactItem.Color1Hex,
+            _outgoingCompactItem.Color2Hex,
+            _outgoingCompactItem.IsSingleSource);
+
+        float totalH = heroRect.Height;
+        float inRatio = Math.Clamp(ease, 0.001f, 1.0f);
+        float outRatio = Math.Clamp(1.0f - inRatio, 0.001f, 1.0f);
+
+        float splitY = _compactTransitionDir < 0
+            ? heroRect.Top + totalH * outRatio
+            : heroRect.Top + totalH * inRatio;
+
+        RectangleF topSlice = new RectangleF(heroRect.Left, heroRect.Top, heroRect.Width, splitY - heroRect.Top);
+        RectangleF botSlice = new RectangleF(heroRect.Left, splitY, heroRect.Width, heroRect.Bottom - splitY);
+
+        RectangleF inRect = _compactTransitionDir < 0 ? botSlice : topSlice;
+        RectangleF outRect = _compactTransitionDir < 0 ? topSlice : botSlice;
+
+        using GraphicsPath outerClipPath = Win11CardPanel.CreateRoundRectF(heroRect, radius);
+        using (SolidBrush backdropBrush = new SolidBrush(BackdropCharcoal))
+        {
+            g.FillPath(backdropBrush, outerClipPath);
+        }
+
+        GraphicsState outerClipState = g.Save();
+        g.SetClip(outerClipPath, CombineMode.Intersect);
+
+        void DrawVertSquashedCard(RectangleF targetBox, float scaleY, bool isIncoming, int alpha)
+        {
+            if (targetBox.Height < 0.5f || scaleY < 0.005f || alpha < 4) return;
+
+            GraphicsState st = g.Save();
+            g.SetClip(targetBox, CombineMode.Intersect);
+
+            float centerX = heroRect.X + heroRect.Width / 2f;
+            float pivotY = targetBox.Y;
+
+            g.TranslateTransform(centerX, pivotY);
+            g.ScaleTransform(1.0f, scaleY);
+            g.TranslateTransform(-centerX, -heroRect.Y);
+
+            if (isIncoming)
+            {
+                FillRoundedCardGradient(g, outerClipPath, heroRect, Color.FromArgb(alpha, _renderedBgLeft), Color.FromArgb(alpha, _renderedBgRight));
+                DrawActiveHUDContent(g, heroRect, _app1Label, _app2Label, _rawSource1, _rawSource2, _app1Vol, _app2Vol, scale, 1.0f, alpha);
+            }
+            else
+            {
+                FillRoundedCardGradient(g, outerClipPath, heroRect, Color.FromArgb(alpha, oldLeftCol), Color.FromArgb(alpha, oldRightCol));
+                DrawActiveHUDContent(
+                    g, heroRect,
+                    _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
+                    _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
+                    _app1Vol, _app2Vol, scale, 1.0f, alpha);
+            }
+
+            g.Restore(st);
+        }
+
+        int outAlpha = (int)Math.Clamp((1.0f - ease * 0.65f) * 255f, 0f, 255f);
+        if (outRatio > 0.005f)
+        {
+            DrawVertSquashedCard(outRect, outRatio, isIncoming: false, outAlpha);
+        }
+        DrawVertSquashedCard(inRect, inRatio, isIncoming: true, 255);
+
+        if (ease > 0.02f && ease < 0.98f)
+        {
+            int seamAlpha = (int)(MathF.Sin(ease * MathF.PI) * 210f);
+            using Pen seamPen = new Pen(Color.FromArgb(seamAlpha, 255, 255, 255), 1.5f * scale);
+            g.DrawLine(seamPen, heroRect.Left + 1f, splitY, heroRect.Right - 1f, splitY);
+        }
+
+        g.Restore(outerClipState);
+
+        using Pen borderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.5f);
+        g.DrawPath(borderPen, outerClipPath);
+    }
+
     // =========================================================================
     // COMPACT NEIGHBOR PREVIEW BOXES (HALF-OVERLAPPING LEFT & RIGHT EDGES)
     // =========================================================================
-    private void DrawCompactNeighborPreviewBoxes(Graphics g, RectangleF heroRect, float scale)
-    {
-        int count = _cycleItems.Count;
-        if (count < 2) return;
-
-        int prevIdx = ((_cycleActiveIndex - 1) % count + count) % count;
-        int nextIdx = ((_cycleActiveIndex + 1) % count + count) % count;
-
-        float bump = MathF.Sin((1f - _compactTransitionProgress) * MathF.PI) * 2.5f * scale * (_compactTransitionProgress > 0f ? 1f : 0f);
-        var (leftBox, rightBox) = GetCompactPreviewBoxRects(heroRect, scale, bump);
-
-        // Swapped places: Left box shows Next Pair, Right box shows Previous Pair
-        DrawSingleNeighborPreviewBox(g, leftBox, _cycleItems[nextIdx], scale, isLeftSide: true);
-        DrawSingleNeighborPreviewBox(g, rightBox, _cycleItems[prevIdx], scale, isLeftSide: false);
-    }
 
     private void DrawSingleNeighborPreviewBox(Graphics g, RectangleF boxRect, CycleDisplayItem item, float scale, bool? isLeftSide = null, int alpha = 230)
     {
@@ -1005,98 +1623,6 @@ public class CrossfadeOverlayForm : Form
 
         using Pen borderPen = new Pen(Color.FromArgb((int)(alpha * 0.65f), 255, 255, 255), 1.1f);
         g.DrawPath(borderPen, boxPath);
-    }
-
-    // =========================================================================
-    // COMPACT STYLE 0: SIDE PREVIEW MORPH (MAIN SHRINKS TO SIDE, PREVIEW EXPANDS TO MAIN)
-    // =========================================================================
-    private static RectangleF LerpRectF(RectangleF a, RectangleF b, float t)
-    {
-        return new RectangleF(
-            a.X + (b.X - a.X) * t,
-            a.Y + (b.Y - a.Y) * t,
-            a.Width + (b.Width - a.Width) * t,
-            a.Height + (b.Height - a.Height) * t);
-    }
-
-    private void DrawCompactSidePreviewMorphHero(Graphics g, RectangleF heroRect, int baseH, float scale)
-    {
-        float t = 1.0f - Math.Clamp(_compactTransitionProgress, 0f, 1f);
-        float ease = 0.5f - 0.5f * MathF.Cos(t * MathF.PI);
-
-        var (leftPreviewRect, rightPreviewRect) = GetCompactPreviewBoxRects(heroRect, scale);
-
-        // Next Pair (+1): Left preview (Next) expands into Center, while Center shrinks into Right preview (Previous)
-        RectangleF incomingStartRect = _compactTransitionDir >= 0 ? leftPreviewRect : rightPreviewRect;
-        RectangleF outgoingEndRect = _compactTransitionDir >= 0 ? rightPreviewRect : leftPreviewRect;
-
-        // 1. If side previews are enabled, draw the newly arriving preview box on the side that just vacated
-        if (!_suppressCarousel && _settings.CompactShowNeighborPreviews && _cycleItems.Count > 1)
-        {
-            int count = _cycleItems.Count;
-            int prevIdx = ((_cycleActiveIndex - 1) % count + count) % count;
-            int nextIdx = ((_cycleActiveIndex + 1) % count + count) % count;
-
-            if (_compactTransitionDir >= 0)
-            {
-                // Left side is the new Next neighbor fading in
-                DrawSingleNeighborPreviewBox(g, leftPreviewRect, _cycleItems[nextIdx], scale, isLeftSide: true, alpha: (int)(230 * ease));
-            }
-            else
-            {
-                // Right side is the new Previous neighbor fading in
-                DrawSingleNeighborPreviewBox(g, rightPreviewRect, _cycleItems[prevIdx], scale, isLeftSide: false, alpha: (int)(230 * ease));
-            }
-        }
-
-        // 2. Outgoing card shrinks from heroRect -> outgoingEndRect (becoming the side preview)
-        RectangleF outRect = LerpRectF(heroRect, outgoingEndRect, ease);
-        float outEmphasis = Math.Clamp(1.0f - ease * 1.25f, 0f, 1f);
-        var (oldLeftCol, oldRightCol) = ComputeItemHeroColors(
-            _outgoingCompactItem.Color1Hex,
-            _outgoingCompactItem.Color2Hex,
-            _outgoingCompactItem.IsSingleSource);
-
-        float outRadius = Math.Clamp(6f * scale + (GetWin11CornerRadius(scale) - 6f * scale) * (1f - ease), 4f, 16f);
-        using (GraphicsPath outPath = Win11CardPanel.CreateRoundRectF(outRect, outRadius))
-        {
-            FillRoundedCardGradient(g, outPath, outRect, oldLeftCol, oldRightCol);
-            if (outEmphasis > 0.08f)
-            {
-                DrawActiveHUDContent(
-                    g, outRect,
-                    _outgoingCompactItem.Label1, _outgoingCompactItem.Label2,
-                    _outgoingCompactItem.RawSource1, _outgoingCompactItem.RawSource2,
-                    _app1Vol, _app2Vol, scale * (0.65f + 0.35f * (1f - ease)), outEmphasis, 240);
-            }
-            using Pen outBorderPen = new Pen(Color.FromArgb(170, 255, 255, 255), 1.2f);
-            g.DrawPath(outBorderPen, outPath);
-        }
-
-        // 3. Incoming preview box expands from incomingStartRect -> heroRect (becoming the active hero card on top)
-        RectangleF inRect = LerpRectF(incomingStartRect, heroRect, ease);
-        float inRadius = Math.Clamp(6f * scale + (GetWin11CornerRadius(scale) - 6f * scale) * ease, 4f, 16f);
-
-        for (int s = 2; s >= 1; s--)
-        {
-            RectangleF shadowRect = RectangleF.Inflate(inRect, s * 1.8f, s * 1.8f);
-            using GraphicsPath shadowPath = Win11CardPanel.CreateRoundRectF(shadowRect, inRadius + s);
-            using SolidBrush shadowBrush = new SolidBrush(Color.FromArgb((int)(80 * ease) / s, 0, 0, 0));
-            g.FillPath(shadowBrush, shadowPath);
-        }
-
-        using (GraphicsPath inPath = Win11CardPanel.CreateRoundRectF(inRect, inRadius))
-        {
-            FillRoundedCardGradient(g, inPath, inRect, _renderedBgLeft, _renderedBgRight);
-            DrawActiveHUDContent(
-                g, inRect,
-                _app1Label, _app2Label,
-                _rawSource1, _rawSource2,
-                _app1Vol, _app2Vol,
-                scale * (0.65f + 0.35f * ease), ease, 255);
-            using Pen inBorderPen = new Pen(Color.FromArgb(220, 255, 255, 255), 1.4f);
-            g.DrawPath(inBorderPen, inPath);
-        }
     }
 
     // =========================================================================
@@ -1908,6 +2434,30 @@ public class CrossfadeOverlayForm : Form
         }
     }
 
+    private RectangleF ApplyAlwaysPreviewBlendIfActive(RectangleF fullCarouselRect, float signedVisualOffset, RectangleF heroCardRect, float scale)
+    {
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float dist = Math.Abs(signedVisualOffset);
+        if (!alwaysPreviews || dist < 0.05f)
+            return fullCarouselRect;
+
+        var (topBox, bottomBox) = GetCompactTopBottomPreviewBoxRects(heroCardRect, scale);
+        RectangleF previewRect = signedVisualOffset < 0 ? topBox : bottomBox;
+
+        // Outer ±2 cards tuck slightly further behind the ±1 preview bar when collapsed
+        if (dist > 1.35f)
+        {
+            float extraTuck = (dist - 1.0f) * 3f * scale;
+            previewRect = new RectangleF(
+                previewRect.X + 6f * scale,
+                previewRect.Y + (signedVisualOffset < 0 ? extraTuck : -extraTuck),
+                previewRect.Width - 12f * scale,
+                previewRect.Height);
+        }
+
+        return LerpRectF(previewRect, fullCarouselRect, Math.Clamp(_wheelExpansion, 0f, 1f));
+    }
+
     private void DrawFloatingCarouselPill(
         Graphics g,
         CycleDisplayItem item,
@@ -1928,12 +2478,18 @@ public class CrossfadeOverlayForm : Form
         float minOrbitDist = (heroCardRect.Height / 2f) + (pillH / 2f) + (6f * scale);
         float orbitSpacing = minOrbitDist + (dist - 1.0f) * (pillH + 5f * scale);
 
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float orbitExpansion = alwaysPreviews ? 1.0f : _wheelExpansion;
+        float cardCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * orbitExpansion);
+
         float pillCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * _wheelExpansion);
-        RectangleF pillRect = new RectangleF(pillX, pillCenterY - pillH / 2f, pillW, pillH);
+        RectangleF fullPillRect = new RectangleF(pillX, pillCenterY - pillH / 2f, pillW, pillH);
+        RectangleF pillRect = ApplyAlwaysPreviewBlendIfActive(fullPillRect, signedVisualOffset, heroCardRect, scale);
 
         if (pillRect.Bottom < 0 || pillRect.Top > this.Height) return;
 
-        float visibility = Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.55f) * _wheelExpansion, 0f, 1f);
+        float baseVis = (alwaysPreviews && dist <= 1.25f) ? Math.Max(_wheelExpansion, 0.92f) : _wheelExpansion;
+        float visibility = Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.55f) * baseVis, 0f, 1f);
         int cardAlpha = (int)Math.Clamp(visibility * 235f, 0f, 235f);
         if (cardAlpha < 12) return;
 
@@ -1947,7 +2503,7 @@ public class CrossfadeOverlayForm : Form
         Color finalLeft = Color.FromArgb(cardAlpha, tintLeft);
         Color finalRight = item.IsSingleSource ? finalLeft : Color.FromArgb(cardAlpha, tintRight);
 
-        float radius = Math.Min(pillH / 2f, 12f * scale);
+        float radius = Math.Min(pillRect.Height / 2f, 12f * scale);
         using GraphicsPath pillPath = Win11CardPanel.CreateRoundRectF(pillRect, radius);
         FillRoundedCardGradient(g, pillPath, pillRect, finalLeft, finalRight);
 
@@ -1963,7 +2519,7 @@ public class CrossfadeOverlayForm : Form
         if (item.IsSingleSource)
         {
             RectangleF centerZone = new RectangleF(pillRect.X + 14f * scale, pillRect.Y + 2f, pillRect.Width - 28f * scale, pillRect.Height - 4f);
-            DrawPillSideIdentity(g, centerZone, item.Label1, item.RawSource1, textAlpha, scale * 0.85f, showName, showIcon, isRightSide: true);
+            DrawCenteredPillIdentity(g, centerZone, item.Label1, item.RawSource1, textAlpha, scale * 0.85f, showName, showIcon);
             return;
         }
 
@@ -2085,14 +2641,21 @@ public class CrossfadeOverlayForm : Form
             ? dist * minOrbitDist
             : minOrbitDist + (dist - 1.0f) * (pillH + 5f * scale);
 
-        float cardCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * _wheelExpansion);
-        RectangleF cardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float orbitExpansion = alwaysPreviews ? 1.0f : _wheelExpansion;
+        float cardCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * orbitExpansion);
+
+        RectangleF fullCardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        RectangleF cardRect = isActiveSlot
+            ? fullCardRect
+            : ApplyAlwaysPreviewBlendIfActive(fullCardRect, signedVisualOffset, heroCardRect, scale);
 
         if (cardRect.Bottom < 0 || cardRect.Top > this.Height) return;
 
+        float baseVis = (alwaysPreviews && dist <= 1.25f) ? Math.Max(_wheelExpansion, 0.92f) : _wheelExpansion;
         float visibility = isActiveSlot
             ? 1.0f
-            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.55f) * _wheelExpansion, 0f, 1f);
+            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.55f) * baseVis, 0f, 1f);
         int cardAlpha = (int)Math.Clamp(visibility * (235f + 20f * activeBlend), 0f, 255f);
         if (cardAlpha < 10) return;
 
@@ -2107,27 +2670,16 @@ public class CrossfadeOverlayForm : Form
             ? EnsureReadableBackdrop(ColorLerp(surfaceBase, itemRawC2, 0.48f))
             : surfaceBase;
 
-        Color bgLeft = pillLeft;
-        Color bgRight = pillRight;
-
-        if (isActiveSlot && _settings.UseSourceBackgroundColors)
-        {
-            var (activeHeroLeft, activeHeroRight) = ComputeItemHeroColors(item.Color1Hex, item.Color2Hex, item.IsSingleSource);
-            bgLeft = ColorLerp(pillLeft, activeHeroLeft, activeBlend);
-            bgRight = ColorLerp(pillRight, activeHeroRight, activeBlend);
-        }
-        else if (isActiveSlot && !_settings.UseSourceBackgroundColors)
-        {
-            bgLeft = ColorLerp(pillLeft, DefaultDarkGrey, activeBlend);
-            bgRight = ColorLerp(pillRight, DefaultDarkGrey, activeBlend);
-        }
+        var (activeHeroLeft, activeHeroRight) = ComputeItemHeroColors(item.Color1Hex, item.Color2Hex, item.IsSingleSource);
+        Color bgLeft = ColorLerp(pillLeft, activeHeroLeft, activeBlend);
+        Color bgRight = ColorLerp(pillRight, activeHeroRight, activeBlend);
 
         if (item.IsSingleSource) { bgRight = bgLeft; }
 
         Color finalLeft = Color.FromArgb(cardAlpha, bgLeft);
         Color finalRight = Color.FromArgb(cardAlpha, bgRight);
 
-        float pillRadius = Math.Min(cardH / 2f, 12f * scale);
+        float pillRadius = Math.Min(cardRect.Height / 2f, 12f * scale);
         float heroRadius = GetWin11CornerRadius(scale);
         float radius = pillRadius + (heroRadius - pillRadius) * activeBlend;
 
@@ -2155,9 +2707,6 @@ public class CrossfadeOverlayForm : Form
         g.DrawPath(rimPen, cardPath);
     }
 
-    // =========================================================================
-    // EXAGGERATED 3D COVERFLOW ARC (WIDE SWING + PERSPECTIVE BANK/TILT)
-    // =========================================================================
     private void DrawCoverflowArcCard(
         Graphics g,
         CycleDisplayItem item,
@@ -2177,7 +2726,6 @@ public class CrossfadeOverlayForm : Form
         float widthRatio = Math.Clamp(1.0f - dist * 0.24f, 0.54f, 1.0f);
         float cardW = heroCardRect.Width * widthRatio;
 
-        // Wide horizontal C-curve swing while keeping all cards strictly horizontal
         float arcSwingX = MathF.Sin(signedVisualOffset * 1.05f) * (58f * scale) * _wheelExpansion;
         float cardX = heroCardRect.X + (heroCardRect.Width - cardW) / 2f + arcSwingX;
 
@@ -2187,14 +2735,21 @@ public class CrossfadeOverlayForm : Form
             ? dist * minOrbitDist
             : minOrbitDist + (dist - 1.0f) * (pillH + 5f * scale);
 
-        float cardCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * _wheelExpansion);
-        RectangleF cardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float orbitExpansion = alwaysPreviews ? 1.0f : _wheelExpansion;
+        float cardCenterY = heroCenterY + Math.Sign(signedVisualOffset) * (orbitSpacing * orbitExpansion);
+
+        RectangleF fullCardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        RectangleF cardRect = isActiveSlot
+            ? fullCardRect
+            : ApplyAlwaysPreviewBlendIfActive(fullCardRect, signedVisualOffset, heroCardRect, scale);
 
         if (cardRect.Bottom < 0 || cardRect.Top > this.Height) return;
 
+        float baseVis = (alwaysPreviews && dist <= 1.25f) ? Math.Max(_wheelExpansion, 0.92f) : _wheelExpansion;
         float visibility = isActiveSlot
             ? 1.0f
-            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.52f) * _wheelExpansion, 0f, 1f);
+            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.52f) * baseVis, 0f, 1f);
         int cardAlpha = (int)Math.Clamp(visibility * (225f + 30f * activeBlend), 0f, 255f);
         if (cardAlpha < 10) return;
 
@@ -2202,12 +2757,17 @@ public class CrossfadeOverlayForm : Form
         Color itemRawC2 = ParseOverlayColor(item.Color2Hex, Color.FromArgb(95, 45, 85));
         Color surfaceBase = Color.FromArgb(26, 28, 34);
 
-        Color bgLeft = _settings.UseSourceBackgroundColors
-            ? EnsureReadableBackdrop(ColorLerp(surfaceBase, itemRawC1, 0.50f + 0.50f * activeBlend))
-            : ColorLerp(surfaceBase, DefaultDarkGrey, activeBlend);
-        Color bgRight = _settings.UseSourceBackgroundColors
-            ? EnsureReadableBackdrop(ColorLerp(surfaceBase, itemRawC2, 0.50f + 0.50f * activeBlend))
-            : ColorLerp(surfaceBase, DefaultDarkGrey, activeBlend);
+        Color pillLeft = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(surfaceBase, itemRawC1, 0.50f))
+            : surfaceBase;
+        Color pillRight = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(surfaceBase, itemRawC2, 0.50f))
+            : surfaceBase;
+
+        // Honors volume-based background color dimming on the active card!
+        var (activeHeroLeft, activeHeroRight) = ComputeItemHeroColors(item.Color1Hex, item.Color2Hex, item.IsSingleSource);
+        Color bgLeft = ColorLerp(pillLeft, activeHeroLeft, activeBlend);
+        Color bgRight = ColorLerp(pillRight, activeHeroRight, activeBlend);
 
         if (item.IsSingleSource) bgRight = bgLeft;
 
@@ -2259,13 +2819,18 @@ public class CrossfadeOverlayForm : Form
         float stackedOffset = signedVisualOffset * peekStep * _wheelExpansion;
 
         float cardCenterY = heroCenterY + stackedOffset;
-        RectangleF cardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        RectangleF fullCardRect = new RectangleF(cardX, cardCenterY - cardH / 2f, cardW, cardH);
+        RectangleF cardRect = isActiveSlot
+            ? fullCardRect
+            : ApplyAlwaysPreviewBlendIfActive(fullCardRect, signedVisualOffset, heroCardRect, scale);
 
         if (cardRect.Bottom < 0 || cardRect.Top > this.Height) return;
 
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float baseVis = (alwaysPreviews && dist <= 1.25f) ? Math.Max(_wheelExpansion, 0.92f) : _wheelExpansion;
         float visibility = isActiveSlot
             ? 1.0f
-            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.50f) * _wheelExpansion, 0f, 1f);
+            : Math.Clamp((1.0f - Math.Max(0f, dist - 1.0f) * 0.50f) * baseVis, 0f, 1f);
         int cardAlpha = (int)Math.Clamp(visibility * (230f + 25f * activeBlend), 0f, 255f);
         if (cardAlpha < 10) return;
 
@@ -2273,13 +2838,18 @@ public class CrossfadeOverlayForm : Form
         Color itemRawC2 = ParseOverlayColor(item.Color2Hex, Color.FromArgb(95, 45, 85));
         Color darkDeckBase = Color.FromArgb(20, 21, 25);
 
-        float colorStrength = Math.Clamp(0.32f + 0.68f * activeBlend - (dist * 0.08f), 0.18f, 1.0f);
-        Color bgLeft = _settings.UseSourceBackgroundColors
-            ? EnsureReadableBackdrop(ColorLerp(darkDeckBase, itemRawC1, colorStrength))
-            : ColorLerp(darkDeckBase, DefaultDarkGrey, activeBlend);
-        Color bgRight = _settings.UseSourceBackgroundColors
-            ? EnsureReadableBackdrop(ColorLerp(darkDeckBase, itemRawC2, colorStrength))
-            : ColorLerp(darkDeckBase, DefaultDarkGrey, activeBlend);
+        float deckStrength = Math.Clamp(0.38f - (dist * 0.08f), 0.18f, 0.45f);
+        Color deckLeft = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(darkDeckBase, itemRawC1, deckStrength))
+            : darkDeckBase;
+        Color deckRight = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(darkDeckBase, itemRawC2, deckStrength))
+            : darkDeckBase;
+
+        // Honors volume-based background color dimming on the active card!
+        var (activeHeroLeft, activeHeroRight) = ComputeItemHeroColors(item.Color1Hex, item.Color2Hex, item.IsSingleSource);
+        Color bgLeft = ColorLerp(deckLeft, activeHeroLeft, activeBlend);
+        Color bgRight = ColorLerp(deckRight, activeHeroRight, activeBlend);
 
         if (item.IsSingleSource) bgRight = bgLeft;
 
@@ -2302,7 +2872,7 @@ public class CrossfadeOverlayForm : Form
 
         if (dist > 0.35f)
         {
-            float lipH = Math.Min(cardH * 0.45f, peekStep * 0.92f);
+            float lipH = Math.Min(cardRect.Height * 0.45f, peekStep * 0.92f);
             float lipY = signedVisualOffset < 0 ? cardRect.Top + 2f : cardRect.Bottom - lipH - 2f;
             RectangleF lipRect = new RectangleF(cardRect.X, lipY, cardRect.Width, lipH);
 
@@ -2313,7 +2883,7 @@ public class CrossfadeOverlayForm : Form
             if (item.IsSingleSource)
             {
                 RectangleF singleZone = new RectangleF(lipRect.X + 14f * scale, lipRect.Y, lipRect.Width - 28f * scale, lipRect.Height);
-                DrawPillSideIdentity(g, singleZone, item.Label1, item.RawSource1, textAlpha, scale * 0.82f, showName, showIcon, isRightSide: true);
+                DrawCenteredPillIdentity(g, singleZone, item.Label1, item.RawSource1, textAlpha, scale * 0.82f, showName, showIcon);
             }
             else
             {
@@ -2339,58 +2909,381 @@ public class CrossfadeOverlayForm : Form
         g.DrawPath(rimPen, cardPath);
     }
 
+    private void DrawCenteredPillIdentity(
+        Graphics g,
+        RectangleF zone,
+        string label,
+        string rawSource,
+        int alpha,
+        float scale,
+        bool showName,
+        bool showIcon)
+    {
+        if (zone.Width <= 10 || alpha <= 5) return;
+
+        Bitmap? icon = showIcon ? AppIconCache.GetIconForSource(rawSource, _settings) : null;
+        int iconPx = icon != null ? (int)Math.Clamp(16 * scale, 12, 24) : 0;
+        float gap = 6f * scale;
+        float iconOpacity = alpha / 255f;
+
+        using Font font = new Font("Segoe UI Semibold", Math.Clamp(9.5f * scale, 7f, 18f), FontStyle.Bold);
+        string text = showName ? label : "";
+
+        SizeF textSz = !string.IsNullOrEmpty(text) ? g.MeasureString(text, font) : SizeF.Empty;
+        float textW = Math.Min(textSz.Width + 2f, Math.Max(0f, zone.Width - iconPx - (icon != null ? gap : 0f)));
+        float totalW = iconPx + (icon != null && !string.IsNullOrEmpty(text) ? gap : 0f) + textW;
+
+        float startX = zone.X + (zone.Width - totalW) / 2f;
+        float cy = zone.Y + zone.Height / 2f;
+
+        if (icon != null)
+        {
+            DrawImageWithAlpha(g, icon, new RectangleF(startX, cy - iconPx / 2f, iconPx, iconPx), iconOpacity);
+            startX += iconPx + gap;
+        }
+
+        if (!string.IsNullOrEmpty(text) && textW > 4f)
+        {
+            RectangleF textRect = new RectangleF(startX, zone.Y, textW + 4f, zone.Height);
+            using SolidBrush textBrush = new SolidBrush(Color.FromArgb(alpha, 238, 240, 245));
+            using StringFormat sf = new StringFormat
+            {
+                Alignment = StringAlignment.Near,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter,
+                FormatFlags = StringFormatFlags.NoWrap
+            };
+            g.DrawString(text, font, textBrush, textRect, sf);
+        }
+    }
+
+    private static GraphicsPath CreateRoundedTrapezoidPath(PointF[] pts, float radius)
+    {
+        GraphicsPath path = new GraphicsPath();
+        if (pts == null || pts.Length != 4 || radius <= 0.4f)
+        {
+            if (pts != null && pts.Length == 4) path.AddPolygon(pts);
+            return path;
+        }
+
+        float topW = pts[1].X - pts[0].X;
+        float botW = pts[2].X - pts[3].X;
+        float h = pts[3].Y - pts[0].Y;
+        float r = Math.Min(radius, Math.Min(Math.Min(topW, botW) * 0.45f, h * 0.45f));
+
+        if (r <= 0.4f)
+        {
+            path.AddPolygon(pts);
+            return path;
+        }
+
+        float d = r * 2f;
+        path.AddArc(pts[0].X, pts[0].Y, d, d, 180f, 90f);
+        path.AddArc(pts[1].X - d, pts[1].Y, d, d, 270f, 90f);
+        path.AddArc(pts[2].X - d, pts[2].Y - d, d, d, 0f, 90f);
+        path.AddArc(pts[3].X, pts[3].Y - d, d, d, 90f, 90f);
+        path.CloseFigure();
+        return path;
+    }
+
+    // =========================================================================
+    // FULL CAROUSEL STYLE 5: LARGE-RADIUS 3D FACETED CYLINDER
+    // =========================================================================
+    private void DrawCylinderFacetCard(
+        Graphics g,
+        CycleDisplayItem item,
+        bool isActiveSlot,
+        float signedVisualOffset,
+        RectangleF heroCardRect,
+        int baseH,
+        float scale)
+    {
+        float dist = Math.Abs(signedVisualOffset);
+        if (dist > 2.55f) return;
+
+        bool alwaysPreviews = string.Equals(_settings.NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase);
+        float activeBlend = Math.Clamp(1.0f - dist, 0f, 1f);
+
+        const float stepAngleRad = 27f * (MathF.PI / 180f);
+        const float maxHorizonRad = 55f * (MathF.PI / 180f);
+        const float maxGeomRad = 86f * (MathF.PI / 180f);
+        float halfStep = stepAngleRad * 0.5f;
+
+        float rawThetaTop = (signedVisualOffset - 0.5f) * stepAngleRad;
+        float rawThetaBot = (signedVisualOffset + 0.5f) * stepAngleRad;
+
+        if (rawThetaTop >= maxHorizonRad - 0.005f || rawThetaBot <= -maxHorizonRad + 0.005f)
+            return;
+
+        float geomThetaTop = Math.Clamp(rawThetaTop, -maxGeomRad, maxGeomRad);
+        float geomThetaBot = Math.Clamp(rawThetaBot, -maxGeomRad, maxGeomRad);
+        if (geomThetaBot - geomThetaTop <= 0.015f) return;
+
+        float visThetaTop = Math.Clamp(rawThetaTop, -maxHorizonRad, maxHorizonRad);
+        float visThetaBot = Math.Clamp(rawThetaBot, -maxHorizonRad, maxHorizonRad);
+        float thetaCenter = (visThetaTop + visThetaBot) * 0.5f;
+        float cosCenter = MathF.Cos(thetaCenter);
+
+        float cosTop = MathF.Cos(geomThetaTop);
+        float cosBot = MathF.Cos(geomThetaBot);
+
+        float pillH = Math.Clamp(baseH * 0.50f, 28f, 64f);
+        float maxOrbitDist = (baseH / 2f) + (pillH / 2f) + (6f * scale);
+        float targetMaxWing = (maxOrbitDist - baseH / 2f) + (pillH * 0.74f);
+
+        float heroCenterY = heroCardRect.Y + heroCardRect.Height / 2f;
+        float sinHalf0 = MathF.Sin(halfStep);
+        float sinHorizon = MathF.Sin(maxHorizonRad);
+
+        float MapCylinderY(float theta)
+        {
+            float s = MathF.Sin(theta);
+            float absS = Math.Abs(s);
+            if (absS <= sinHalf0)
+            {
+                return heroCenterY + (s / sinHalf0) * (heroCardRect.Height * 0.5f);
+            }
+            float tWing = (absS - sinHalf0) / Math.Max(0.05f, sinHorizon - sinHalf0);
+            return heroCenterY + Math.Sign(s) * ((heroCardRect.Height * 0.5f) + tWing * targetMaxWing);
+        }
+
+        float yTopFull = MapCylinderY(geomThetaTop);
+        float yBotFull = MapCylinderY(geomThetaBot);
+
+        float yHorizonTop = MapCylinderY(-maxHorizonRad);
+        float yHorizonBot = MapCylinderY(maxHorizonRad);
+
+        float baseW = heroCardRect.Width;
+        float centerX = heroCardRect.X + baseW / 2f;
+
+        float cosHorizon = MathF.Cos(maxHorizonRad);
+        float normTop = Math.Clamp((cosTop - cosHorizon * 0.65f) / (1f - cosHorizon * 0.65f), 0f, 1f);
+        float normBot = Math.Clamp((cosBot - cosHorizon * 0.65f) / (1f - cosHorizon * 0.65f), 0f, 1f);
+
+        float wTopFull = baseW * (0.78f + 0.22f * MathF.Pow(normTop, 0.70f));
+        float wBotFull = baseW * (0.78f + 0.22f * MathF.Pow(normBot, 0.70f));
+
+        float exp = Math.Clamp(_wheelExpansion, 0f, 1f);
+        if (!isActiveSlot)
+        {
+            RectangleF startRect = heroCardRect;
+            if (alwaysPreviews)
+            {
+                var (topBox, bottomBox) = GetCompactTopBottomPreviewBoxRects(heroCardRect, scale);
+                startRect = signedVisualOffset < 0 ? topBox : bottomBox;
+            }
+            yTopFull = startRect.Top + (yTopFull - startRect.Top) * exp;
+            yBotFull = startRect.Bottom + (yBotFull - startRect.Bottom) * exp;
+            wTopFull = startRect.Width + (wTopFull - startRect.Width) * exp;
+            wBotFull = startRect.Width + (wBotFull - startRect.Width) * exp;
+
+            yHorizonTop = startRect.Top + (yHorizonTop - startRect.Top) * exp;
+            yHorizonBot = startRect.Bottom + (yHorizonBot - startRect.Bottom) * exp;
+        }
+
+        float fullFacetH = Math.Max(1f, yBotFull - yTopFull);
+        float visTopY = Math.Clamp(yTopFull, yHorizonTop, yHorizonBot);
+        float visBotY = Math.Clamp(yBotFull, yHorizonTop, yHorizonBot);
+        float visFacetH = visBotY - visTopY;
+        if (visFacetH <= 1.5f || visBotY < 0 || visTopY > this.Height) return;
+
+        float tTopSlice = Math.Clamp((visTopY - yTopFull) / fullFacetH, 0f, 1f);
+        float tBotSlice = Math.Clamp((visBotY - yTopFull) / fullFacetH, 0f, 1f);
+        float wVisTop = wTopFull + (wBotFull - wTopFull) * tTopSlice;
+        float wVisBot = wTopFull + (wBotFull - wTopFull) * tBotSlice;
+
+        float horizonVisibility = Math.Clamp((2.52f - dist) / 0.48f, 0f, 1f);
+        float baseVis = (alwaysPreviews && dist <= 1.25f) ? Math.Max(exp, 0.92f) : exp;
+        float visibility = isActiveSlot ? 1.0f : Math.Clamp(horizonVisibility * baseVis, 0f, 1f);
+        int cardAlpha = (int)Math.Clamp(visibility * (240f + 15f * activeBlend), 0f, 255f);
+        if (cardAlpha < 6) return;
+
+        float realCardMorph = _cycleItems.Count <= 2
+            ? Math.Clamp(2.0f - dist, 0f, 1f)
+            : Math.Clamp((2.35f - dist) / 0.65f, 0f, 1f);
+
+        PointF[] trapPts = new PointF[]
+        {
+            new PointF(centerX - wVisTop / 2f, visTopY),
+            new PointF(centerX + wVisTop / 2f, visTopY),
+            new PointF(centerX + wVisBot / 2f, visBotY),
+            new PointF(centerX - wVisBot / 2f, visBotY)
+        };
+
+        float maxHeroRadius = GetWin11CornerRadius(scale);
+        float closeProgress = MathF.Pow(1.0f - exp, 1.35f);
+        float dynamicCornerRadius = maxHeroRadius * closeProgress * (0.35f + 0.65f * activeBlend);
+
+        using GraphicsPath facetPath = CreateRoundedTrapezoidPath(trapPts, dynamicCornerRadius);
+
+        Color itemRawC1 = ParseOverlayColor(item.Color1Hex, Color.FromArgb(40, 80, 120));
+        Color itemRawC2 = ParseOverlayColor(item.Color2Hex, Color.FromArgb(95, 45, 85));
+        Color cylinderBase = Color.FromArgb(20, 22, 28);
+        Color genericEmptyGray = Color.FromArgb(42, 45, 54);
+
+        float lighting = Math.Clamp(MathF.Pow(cosCenter, 0.85f), 0.35f, 1.0f);
+        Color emptyLitGray = ColorLerp(cylinderBase, genericEmptyGray, lighting);
+
+        Color sourceFacetLeft = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(cylinderBase, itemRawC1, 0.78f * lighting))
+            : ColorLerp(cylinderBase, DefaultDarkGrey, lighting);
+        Color sourceFacetRight = _settings.UseSourceBackgroundColors
+            ? EnsureReadableBackdrop(ColorLerp(cylinderBase, itemRawC2, 0.78f * lighting))
+            : ColorLerp(cylinderBase, DefaultDarkGrey, lighting);
+
+        if (item.IsSingleSource) sourceFacetRight = sourceFacetLeft;
+
+        Color facetLeft = ColorLerp(emptyLitGray, sourceFacetLeft, realCardMorph);
+        Color facetRight = ColorLerp(emptyLitGray, sourceFacetRight, realCardMorph);
+
+        var (activeHeroLeft, activeHeroRight) = ComputeItemHeroColors(item.Color1Hex, item.Color2Hex, item.IsSingleSource);
+        Color bgLeft = ColorLerp(facetLeft, activeHeroLeft, activeBlend);
+        Color bgRight = ColorLerp(facetRight, activeHeroRight, activeBlend);
+        if (item.IsSingleSource) bgRight = bgLeft;
+
+        float maxW = Math.Max(wVisTop, wVisBot);
+        RectangleF boundsRect = new RectangleF(centerX - maxW / 2f, visTopY, maxW, visFacetH);
+        FillRoundedCardGradient(g, facetPath, boundsRect, Color.FromArgb(cardAlpha, bgLeft), Color.FromArgb(cardAlpha, bgRight));
+
+        int horizonDarkAlpha = (int)Math.Clamp((1.0f - cosCenter) * 210f * exp, 0f, 155f);
+        if (horizonDarkAlpha > 4)
+        {
+            Color nearEdgeShade = Color.FromArgb((int)(horizonDarkAlpha * 0.15f), 0, 0, 0);
+            Color farEdgeShade = Color.FromArgb(horizonDarkAlpha, 0, 0, 0);
+            Color topShade = signedVisualOffset < 0 ? farEdgeShade : nearEdgeShade;
+            Color botShade = signedVisualOffset < 0 ? nearEdgeShade : farEdgeShade;
+
+            using LinearGradientBrush depthBrush = new LinearGradientBrush(
+                new PointF(centerX, visTopY - 1f),
+                new PointF(centerX, visBotY + 1f),
+                topShade,
+                botShade);
+            g.FillPath(depthBrush, facetPath);
+        }
+
+        if (visFacetH >= 5f && realCardMorph > 0.04f)
+        {
+            GraphicsState contentState = g.Save();
+            g.SetClip(facetPath, CombineMode.Intersect);
+
+            float unclampedMidY = (yTopFull + yBotFull) / 2f;
+            float scaleY = Math.Clamp(fullFacetH / Math.Max(1f, heroCardRect.Height), 0.25f, 1.0f);
+            float avgW = (wTopFull + wBotFull) * 0.5f;
+            float scaleX = Math.Clamp(avgW / Math.Max(1f, heroCardRect.Width), 0.78f, 1.0f);
+
+            g.TranslateTransform(centerX, unclampedMidY);
+            g.ScaleTransform(scaleX, scaleY);
+            g.TranslateTransform(-centerX, -(heroCardRect.Y + heroCardRect.Height / 2f));
+
+            int contentAlpha = (int)Math.Clamp(cardAlpha * realCardMorph * Math.Clamp(cosCenter * 1.15f, 0.45f, 1.0f), 0f, 255f);
+            if (contentAlpha > 6)
+            {
+                DrawActiveHUDContent(
+                    g,
+                    heroCardRect,
+                    item.Label1,
+                    item.Label2,
+                    item.RawSource1,
+                    item.RawSource2,
+                    _app1Vol,
+                    _app2Vol,
+                    scale,
+                    activeBlend,
+                    contentAlpha);
+            }
+
+            g.Restore(contentState);
+        }
+
+        int sidePenAlpha = (int)Math.Clamp(cardAlpha * (0.38f + 0.52f * activeBlend), 0, 225);
+        using (Pen facetBorderPen = new Pen(Color.FromArgb(sidePenAlpha, 255, 255, 255), 1.0f + 0.5f * activeBlend))
+        {
+            g.DrawPath(facetBorderPen, facetPath);
+        }
+
+        int ridgeAlpha = (int)Math.Clamp(cardAlpha * exp * (0.55f + 0.40f * activeBlend), 0, 240);
+        if (ridgeAlpha > 8 && dynamicCornerRadius < 2.5f * scale)
+        {
+            using Pen ridgePen = new Pen(Color.FromArgb(ridgeAlpha, 255, 255, 255), 1.4f * scale);
+            if (signedVisualOffset <= 0.1f)
+                g.DrawLine(ridgePen, trapPts[3], trapPts[2]);
+            if (signedVisualOffset >= -0.1f)
+                g.DrawLine(ridgePen, trapPts[0], trapPts[1]);
+        }
+    }
+
+    private Bitmap? _backbuffer;
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        _fadeTimer?.Stop();
+        _fadeTimer?.Dispose();
+        _backbuffer?.Dispose();
+        _backbuffer = null;
+        base.OnFormClosed(e);
+    }
+
     private void RenderLayeredOverlay()
     {
         if (this.IsDisposed || !this.IsHandleCreated || this.Width <= 10 || this.Height <= 10) return;
 
-        using Bitmap canvas = new Bitmap(this.Width, this.Height, PixelFormat.Format32bppPArgb);
-        using (Graphics g = Graphics.FromImage(canvas))
-        {
-            g.Clear(Color.Transparent);
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-
-            if (_masterOpacity > 0.005)
-            {
-                DrawOverlayScene(g);
-            }
-        }
-
-        IntPtr screenDc = GetDC(IntPtr.Zero);
-        IntPtr memDc = CreateCompatibleDC(screenDc);
-        IntPtr hBitmap = IntPtr.Zero;
-        IntPtr oldBitmap = IntPtr.Zero;
-
         try
         {
-            hBitmap = canvas.GetHbitmap(Color.FromArgb(0));
-            oldBitmap = SelectObject(memDc, hBitmap);
-
-            Point topPos = new Point(this.Left, this.Top);
-            Size winSize = new Size(this.Width, this.Height);
-            Point srcPos = new Point(0, 0);
-            double maxOpacity = Math.Clamp(_settings.OverlayOpacity, 10, 100) / 100.0;
-            double effectiveOpacity = _masterOpacity * maxOpacity;
-
-            BLENDFUNCTION blend = new BLENDFUNCTION
+            if (_backbuffer == null || _backbuffer.Width != this.Width || _backbuffer.Height != this.Height)
             {
-                BlendOp = AC_SRC_OVER,
-                BlendFlags = 0,
-                SourceConstantAlpha = (byte)Math.Clamp((int)Math.Round(effectiveOpacity * 255.0), 0, 255),
-                AlphaFormat = AC_SRC_ALPHA
-            };
+                _backbuffer?.Dispose();
+                _backbuffer = new Bitmap(this.Width, this.Height, PixelFormat.Format32bppPArgb);
+            }
 
-            UpdateLayeredWindow(this.Handle, screenDc, ref topPos, ref winSize, memDc, ref srcPos, 0, ref blend, ULW_ALPHA);
+            using (Graphics g = Graphics.FromImage(_backbuffer))
+            {
+                g.Clear(Color.Transparent);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+
+                if (_masterOpacity > 0.005)
+                {
+                    DrawOverlayScene(g);
+                }
+            }
+
+            IntPtr screenDc = GetDC(IntPtr.Zero);
+            IntPtr memDc = CreateCompatibleDC(screenDc);
+            IntPtr hBitmap = IntPtr.Zero;
+            IntPtr oldBitmap = IntPtr.Zero;
+
+            try
+            {
+                hBitmap = _backbuffer.GetHbitmap(Color.FromArgb(0));
+                oldBitmap = SelectObject(memDc, hBitmap);
+
+                Point topPos = new Point(this.Left, this.Top);
+                Size winSize = new Size(this.Width, this.Height);
+                Point srcPos = new Point(0, 0);
+                double maxOpacity = Math.Clamp(_settings.OverlayOpacity, 10, 100) / 100.0;
+                double effectiveOpacity = _masterOpacity * maxOpacity;
+
+                BLENDFUNCTION blend = new BLENDFUNCTION
+                {
+                    BlendOp = AC_SRC_OVER,
+                    BlendFlags = 0,
+                    SourceConstantAlpha = (byte)Math.Clamp((int)Math.Round(effectiveOpacity * 255.0), 0, 255),
+                    AlphaFormat = AC_SRC_ALPHA
+                };
+
+                UpdateLayeredWindow(this.Handle, screenDc, ref topPos, ref winSize, memDc, ref srcPos, 0, ref blend, ULW_ALPHA);
+            }
+            finally
+            {
+                if (oldBitmap != IntPtr.Zero) SelectObject(memDc, oldBitmap);
+                if (hBitmap != IntPtr.Zero) DeleteObject(hBitmap);
+                if (memDc != IntPtr.Zero) DeleteDC(memDc);
+                if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
+            }
         }
-        finally
-        {
-            if (oldBitmap != IntPtr.Zero) SelectObject(memDc, oldBitmap);
-            if (hBitmap != IntPtr.Zero) DeleteObject(hBitmap);
-            if (memDc != IntPtr.Zero) DeleteDC(memDc);
-            if (screenDc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, screenDc);
-        }
+        catch { }
     }
 
     private GraphicsPath? GetSafeRoundedBarPath(int x, int y, int width, int height, bool roundLeft, bool roundRight)

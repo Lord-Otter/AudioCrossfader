@@ -170,10 +170,12 @@ public class SettingsForm : Form
     private Win11CardPanel _pillTrack = null!;
     private ModernButton _navBtnGeneral = null!;
     private ModernButton _navBtnGroups = null!;
-    private ModernButton _navBtnPersonalization = null!;
+    private ModernButton _navBtnOverlay = null!;
+    private ModernButton _navBtnBehavior = null!;
     private DarkScrollPanel _pageGeneral = null!;
     private DarkScrollPanel _pageGroups = null!;
-    private DarkScrollPanel _pagePersonalization = null!;
+    private DarkScrollPanel _pageOverlay = null!;
+    private DarkScrollPanel _pageBehavior = null!;
 
     private Win11CardPanel _cycleListCard = null!;
     private Label _lblCycleCardTitle = null!;
@@ -194,6 +196,9 @@ public class SettingsForm : Form
     private Label _lblStandaloneCardTitle = null!;
     private ModernButton _btnAddStandaloneEntry = null!;
     private Panel _standaloneSlotsHost = null!;
+    private Win11CardPanel _groupsMasterCard = null!;
+    private ModernButton _btnAddGroupEntry = null!;
+    private Panel _groupsSlotsHost = null!;
 
     private Win11CardPanel _previewCard = null!;
     private Win11CardPanel _overlayStyleCard = null!;
@@ -217,25 +222,26 @@ public class SettingsForm : Form
     private ModernComboBox _cmbCarouselStyle = null!;
     private CheckBox _chkUseSourceBgColors = null!;
     private CheckBox _chkFadeBgWithVolume = null!;
-    private CheckBox _chkCompactNeighborPreviews = null!;
     private CheckBox _chkEnableAnimations = null!;
-    private TextBox _txtCarouselSpeed = null!;
+    private ModernSlider _sldCarouselSpeed = null!;
     private CheckBox _chkCarouselBg = null!;
-    
+
     private ModernComboBox _cmbPosition = null!;
     private TextBox _txtPopupDuration = null!;
-    private TextBox _txtOverlayOpacity = null!;
-    private TextBox _txtStepSize = null!;
+    private ModernSlider _sldOverlayOpacity = null!;
+    private ModernSlider _sldStepSize = null!;
     private TextBox _txtWidth = null!;
     private TextBox _txtHeight = null!;
     private CheckBox _chkStartup = null!;
     private CheckBox _chkInterpolation = null!;
-    private TextBox _txtInterpSpeed = null!;
+    private ModernSlider _sldInterpSpeed = null!;
     private CheckBox _chkBuffer = null!;
 
     private ModernComboBox _cmbCarouselMode = null!;
     private CheckBox _chkInvertCarouselScroll = null!;
     private ModernComboBox _cmbCardOrder = null!;
+    private ModernComboBox _cmbNeighborPreviewMode = null!;
+    private ModernSlider _sldCarouselOpenSpeed = null!;
     private Action? _updateCarouselModeLayout;
     private System.Windows.Forms.Timer? _carouselCardAnimTimer;
 
@@ -316,11 +322,13 @@ public class SettingsForm : Form
 
         _pageGeneral = CreateGeneralPage();
         _pageGroups = CreateGroupsPage();
-        _pagePersonalization = CreatePersonalizationPage();
+        _pageOverlay = CreateOverlayPage();
+        _pageBehavior = CreateBehaviorPage();
 
         contentHost.Controls.Add(_pageGeneral);
         contentHost.Controls.Add(_pageGroups);
-        contentHost.Controls.Add(_pagePersonalization);
+        contentHost.Controls.Add(_pageOverlay);
+        contentHost.Controls.Add(_pageBehavior);
         Controls.Add(contentHost);
 
         contentHost.BringToFront();
@@ -387,10 +395,11 @@ public class SettingsForm : Form
             _pillTrack.Width = effectiveBarW;
 
             int tabGap = 4;
-            int availW = effectiveBarW - 8 - (tabGap * 2);
-            int tab1W = availW / 3;
-            int tab2W = availW / 3;
-            int tab3W = availW - tab1W - tab2W;
+            int availW = effectiveBarW - 8 - (tabGap * 3);
+            int tab1W = availW / 4;
+            int tab2W = availW / 4;
+            int tab3W = availW / 4;
+            int tab4W = availW - tab1W - tab2W - tab3W;
 
             _navBtnGeneral.Left = 4;
             _navBtnGeneral.Width = tab1W;
@@ -398,13 +407,17 @@ public class SettingsForm : Form
             _navBtnGroups.Left = _navBtnGeneral.Right + tabGap;
             _navBtnGroups.Width = tab2W;
 
-            _navBtnPersonalization.Left = _navBtnGroups.Right + tabGap;
-            _navBtnPersonalization.Width = tab3W;
+            _navBtnOverlay.Left = _navBtnGroups.Right + tabGap;
+            _navBtnOverlay.Width = tab3W;
+
+            _navBtnBehavior.Left = _navBtnOverlay.Right + tabGap;
+            _navBtnBehavior.Width = tab4W;
 
             ModernButton activeNavBtn = _activeTabIndex switch
             {
                 1 => _navBtnGroups,
-                2 => _navBtnPersonalization,
+                2 => _navBtnOverlay,
+                3 => _navBtnBehavior,
                 _ => _navBtnGeneral
             };
             AnimateNavPillTo(activeNavBtn, immediate: true);
@@ -470,7 +483,7 @@ public class SettingsForm : Form
                 _pageGroups?.RecalculateScroll();
             }
 
-            if (!_isResizing || _activeTabIndex == 2)
+            if (!_isResizing || _activeTabIndex == 2 || _activeTabIndex == 3)
             {
                 StretchPersonalizationControls(cardW);
                 ReflowPersonalizationPage();
@@ -496,12 +509,18 @@ public class SettingsForm : Form
 
         _cmbIdentityMode.Width = rightStretchW;
         _cmbLevelMode.Width = rightStretchW;
+        _sldOverlayOpacity.Width = rightStretchW;
         _unmutedColorBox.Width = rightStretchW;
         _mutedColorBox.Width = rightStretchW;
         if (_cmbCarouselMode != null) _cmbCarouselMode.Width = rightStretchW;
         _cmbCarouselStyle.Width = rightStretchW;
-        _cmbCarouselStyle.Width = rightStretchW;
+        if (_cmbNeighborPreviewMode != null) _cmbNeighborPreviewMode.Width = rightStretchW;
+        if (_sldCarouselOpenSpeed != null) _sldCarouselOpenSpeed.Width = rightStretchW;
+        if (_sldCarouselSpeed != null) _sldCarouselSpeed.Width = rightStretchW;
+        if (_cmbCardOrder != null) _cmbCardOrder.Width = rightStretchW;
         _cmbPosition.Width = rightStretchW;
+        if (_sldStepSize != null) _sldStepSize.Width = rightStretchW;
+        if (_sldInterpSpeed != null) _sldInterpSpeed.Width = rightStretchW;
 
         _chkCarouselBg.Left = 185;
 
@@ -523,42 +542,54 @@ public class SettingsForm : Form
 
     private void ResizeExistingGroupCards(int cardW)
     {
-        if (_pageGroups == null) return;
+        if (_groupsMasterCard == null || _groupsSlotsHost == null) return;
 
-        int nameBoxW = Math.Max(200, cardW - 196);
-        int exeComboW = Math.Max(240, cardW - 154);
+        _groupsMasterCard.Width = cardW;
+        _btnAddGroupEntry.Left = cardW - 14 - _btnAddGroupEntry.Width;
 
-        foreach (Control c in _pageGroups.InnerControls)
+        int hostW = Math.Max(442, cardW - 24);
+        _groupsSlotsHost.Width = hostW;
+
+        int btnDelW = 104;
+        int btnDelGroupLeft = hostW - btnDelW - 8;
+        int nameBoxLeft = 106;
+        int nameBoxW = Math.Max(130, btnDelGroupLeft - nameBoxLeft - 8);
+
+        int exeComboW = Math.Max(180, hostW - 154);
+        int btnBrowseLeft = 10 + exeComboW + 6;
+        int btnRemExeLeft = btnBrowseLeft + 94 + 4;
+
+        foreach (Control c in _groupsSlotsHost.Controls)
         {
-            if (c is ModernButton btn && btn.Text == "+ New Group")
+            if (c is not Win11CardPanel groupCard) continue;
+            groupCard.Width = hostW;
+
+            foreach (Control child in groupCard.Controls)
             {
-                btn.Left = 18 + cardW - 126;
-            }
-            else if (c is Win11CardPanel card)
-            {
-                card.Width = cardW;
-                foreach (Control child in card.Controls)
+                if (child.Tag is not string tag) continue;
+                switch (tag)
                 {
-                    if (child is TextBox txt)
-                    {
-                        txt.Width = nameBoxW;
-                    }
-                    else if (child is ModernComboBox cmb)
-                    {
-                        cmb.Width = exeComboW;
-                    }
-                    else if (child is ModernButton childBtn)
-                    {
-                        if (childBtn.Text == "Delete Group")
-                            childBtn.Left = cardW - 126;
-                        else if (childBtn.Text == "Browse...")
-                            childBtn.Left = 12 + exeComboW + 6;
-                        else if (childBtn.Text == "✕")
-                            childBtn.Left = 12 + exeComboW + 94;
-                    }
+                    case "GroupNameTxt":
+                        child.Left = nameBoxLeft;
+                        child.Width = nameBoxW;
+                        break;
+                    case "DeleteGroupBtn":
+                        child.Left = btnDelGroupLeft;
+                        break;
+                    case "GroupExeRow":
+                        child.Width = hostW - 4;
+                        foreach (Control rc in child.Controls)
+                        {
+                            if (rc.Tag as string == "ExeCombo") rc.Width = exeComboW;
+                            else if (rc.Tag as string == "BrowseExeBtn") rc.Left = btnBrowseLeft;
+                            else if (rc.Tag as string == "RemoveExeBtn") rc.Left = btnRemExeLeft;
+                        }
+                        break;
                 }
             }
         }
+
+        ReflowGroupsPage();
     }
 
     private Panel BuildTopNavigationBar()
@@ -581,16 +612,18 @@ public class SettingsForm : Form
             CornerRadius = 8,
             Padding = new Padding(3),
             ShowHighlightPill = true,
-            HighlightPillRect = new RectangleF(4, 4, 152, 30)
+            HighlightPillRect = new RectangleF(4, 4, 112, 30)
         };
 
-        _navBtnGeneral = CreateNavTabButton("Sources", 4, 4, 152, () => SwitchTab(0));
-        _navBtnGroups = CreateNavTabButton("Groups", 160, 4, 152, () => SwitchTab(1));
-        _navBtnPersonalization = CreateNavTabButton("Appearance && Behavior", 316, 4, 148, () => SwitchTab(2));
+        _navBtnGeneral = CreateNavTabButton("Sources", 4, 4, 112, () => SwitchTab(0));
+        _navBtnGroups = CreateNavTabButton("Groups", 120, 4, 112, () => SwitchTab(1));
+        _navBtnOverlay = CreateNavTabButton("Overlay", 236, 4, 112, () => SwitchTab(2));
+        _navBtnBehavior = CreateNavTabButton("Behavior", 352, 4, 112, () => SwitchTab(3));
 
         _pillTrack.Controls.Add(_navBtnGeneral);
         _pillTrack.Controls.Add(_navBtnGroups);
-        _pillTrack.Controls.Add(_navBtnPersonalization);
+        _pillTrack.Controls.Add(_navBtnOverlay);
+        _pillTrack.Controls.Add(_navBtnBehavior);
         header.Controls.Add(_pillTrack);
 
         return header;
@@ -602,9 +635,18 @@ public class SettingsForm : Form
 
         _pageGeneral.Visible = true;
         _pageGroups.Visible = false;
-        _pagePersonalization.Visible = false;
+        _pageOverlay.Visible = false;
+        _pageBehavior.Visible = false;
 
         _tabStateMachine = new StateMachine<SettingsTabState>(SettingsTabState.Sources);
+
+        void UpdateNavButtons(int activeIdx)
+        {
+            StyleNavButton(_navBtnGeneral, activeIdx == 0);
+            StyleNavButton(_navBtnGroups, activeIdx == 1);
+            StyleNavButton(_navBtnOverlay, activeIdx == 2);
+            StyleNavButton(_navBtnBehavior, activeIdx == 3);
+        }
 
         _tabStateMachine.ConfigureState(
             SettingsTabState.Sources,
@@ -612,24 +654,19 @@ public class SettingsForm : Form
             {
                 _activeTabIndex = 0;
                 _pageGroups.Visible = false;
-                _pagePersonalization.Visible = false;
+                _pageOverlay.Visible = false;
+                _pageBehavior.Visible = false;
                 _pageGeneral.Visible = true;
                 _pageGeneral.BringToFront();
 
-                StyleNavButton(_navBtnGeneral, true);
-                StyleNavButton(_navBtnGroups, false);
-                StyleNavButton(_navBtnPersonalization, false);
+                UpdateNavButtons(0);
                 AnimateNavPillTo(_navBtnGeneral, immediate: _isInitializing);
 
                 ResizeExistingPairCards(_cycleSlotsHost);
                 ResizeExistingPairCards(_standaloneSlotsHost);
                 ReflowGeneralPage();
             },
-            onExit: () =>
-            {
-                _pageGeneral.Visible = false;
-                StyleNavButton(_navBtnGeneral, false);
-            });
+            onExit: () => _pageGeneral.Visible = false);
 
         _tabStateMachine.ConfigureState(
             SettingsTabState.Groups,
@@ -637,49 +674,59 @@ public class SettingsForm : Form
             {
                 _activeTabIndex = 1;
                 _pageGeneral.Visible = false;
-                _pagePersonalization.Visible = false;
+                _pageOverlay.Visible = false;
+                _pageBehavior.Visible = false;
                 _pageGroups.Visible = true;
                 _pageGroups.BringToFront();
 
-                StyleNavButton(_navBtnGeneral, false);
-                StyleNavButton(_navBtnGroups, true);
-                StyleNavButton(_navBtnPersonalization, false);
+                UpdateNavButtons(1);
                 AnimateNavPillTo(_navBtnGroups, immediate: _isInitializing);
 
                 int cardW = Math.Max(468, ClientSize.Width - 36);
                 ResizeExistingGroupCards(cardW);
                 _pageGroups.RecalculateScroll();
             },
-            onExit: () =>
-            {
-                _pageGroups.Visible = false;
-                StyleNavButton(_navBtnGroups, false);
-            });
+            onExit: () => _pageGroups.Visible = false);
 
         _tabStateMachine.ConfigureState(
-            SettingsTabState.AppearanceAndBehavior,
+            SettingsTabState.Overlay,
             onEnter: () =>
             {
                 _activeTabIndex = 2;
                 _pageGeneral.Visible = false;
                 _pageGroups.Visible = false;
-                _pagePersonalization.Visible = true;
-                _pagePersonalization.BringToFront();
+                _pageBehavior.Visible = false;
+                _pageOverlay.Visible = true;
+                _pageOverlay.BringToFront();
 
-                StyleNavButton(_navBtnGeneral, false);
-                StyleNavButton(_navBtnGroups, false);
-                StyleNavButton(_navBtnPersonalization, true);
-                AnimateNavPillTo(_navBtnPersonalization, immediate: _isInitializing);
+                UpdateNavButtons(2);
+                AnimateNavPillTo(_navBtnOverlay, immediate: _isInitializing);
 
                 int cardW = Math.Max(468, ClientSize.Width - 36);
                 StretchPersonalizationControls(cardW);
                 ReflowPersonalizationPage();
             },
-            onExit: () =>
+            onExit: () => _pageOverlay.Visible = false);
+
+        _tabStateMachine.ConfigureState(
+            SettingsTabState.Behavior,
+            onEnter: () =>
             {
-                _pagePersonalization.Visible = false;
-                StyleNavButton(_navBtnPersonalization, false);
-            });
+                _activeTabIndex = 3;
+                _pageGeneral.Visible = false;
+                _pageGroups.Visible = false;
+                _pageOverlay.Visible = false;
+                _pageBehavior.Visible = true;
+                _pageBehavior.BringToFront();
+
+                UpdateNavButtons(3);
+                AnimateNavPillTo(_navBtnBehavior, immediate: _isInitializing);
+
+                int cardW = Math.Max(468, ClientSize.Width - 36);
+                StretchPersonalizationControls(cardW);
+                ReflowPersonalizationPage();
+            },
+            onExit: () => _pageBehavior.Visible = false);
     }
 
     private ModernButton CreateNavTabButton(string text, int left, int top, int width, Action onClick)
@@ -713,7 +760,8 @@ public class SettingsForm : Form
         SettingsTabState targetState = index switch
         {
             1 => SettingsTabState.Groups,
-            2 => SettingsTabState.AppearanceAndBehavior,
+            2 => SettingsTabState.Overlay,
+            3 => SettingsTabState.Behavior,
             _ => SettingsTabState.Sources
         };
 
@@ -784,7 +832,8 @@ public class SettingsForm : Form
         _pillTrack?.Invalidate();
         _navBtnGeneral?.Invalidate();
         _navBtnGroups?.Invalidate();
-        _navBtnPersonalization?.Invalidate();
+        _navBtnOverlay?.Invalidate();
+        _navBtnBehavior?.Invalidate();
     }
 
     private Panel BuildBottomActionBar()
@@ -869,7 +918,14 @@ public class SettingsForm : Form
         return fallback;
     }
 
-    private RoundedColorSwatch CreateCompactColorSwatch(int left, int top, int width, int height, string initialHex, Action<string> onColorPicked)
+    private RoundedColorSwatch CreateCompactColorSwatch(
+        int left,
+        int top,
+        int width,
+        int height,
+        string initialHex,
+        Action<string> onColorPicked,
+        CrossfadeCyclePair? ownerPair = null)
     {
         RoundedColorSwatch swatch = new RoundedColorSwatch
         {
@@ -883,16 +939,45 @@ public class SettingsForm : Form
 
         swatch.Click += (s, e) =>
         {
-            using ColorDialog dlg = new ColorDialog { FullOpen = true };
-            try { dlg.Color = swatch.SwatchColor; } catch { }
+            Color originalColor = swatch.SwatchColor;
+            string originalHex = ColorTranslator.ToHtml(originalColor);
+
+            void PushColorPreview(Color liveCol)
+            {
+                string liveHex = $"#{liveCol.R:X2}{liveCol.G:X2}{liveCol.B:X2}";
+                swatch.SwatchColor = liveCol;
+                swatch.Invalidate();
+                onColorPicked(liveHex);
+
+                SyncDraftPersonalizationFields();
+                var previewDraft = _draftSettings.Clone();
+                if (ownerPair != null && !string.IsNullOrWhiteSpace(ownerPair.Source1))
+                {
+                    previewDraft.Source1 = AppSettings.NormalizeExeName(ownerPair.Source1);
+                    previewDraft.Source1Color = ownerPair.Color1Hex;
+                    previewDraft.Source2 = ownerPair.IsSingleMode ? "" : AppSettings.NormalizeExeName(ownerPair.Source2);
+                    previewDraft.Source2Color = ownerPair.Color2Hex;
+                    previewDraft.ActiveControlMode = ownerPair.ControlMode;
+                }
+                _context.TriggerOverlayPreview(previewDraft);
+            }
+
+            using var dlg = new ModernColorPickerDialog(originalColor, _draftSettings, PushColorPreview);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                swatch.SwatchColor = dlg.Color;
+                swatch.SwatchColor = dlg.SelectedColor;
                 swatch.Invalidate();
-                string hex = ColorTranslator.ToHtml(dlg.Color);
-                onColorPicked(hex);
+                onColorPicked(dlg.SelectedHex);
                 MarkDirty();
-                PushLivePreviewIfActive();
+                PushLivePreviewIfActive(forceTrigger: true);
+            }
+            else
+            {
+                // Revert back to original color if user cancels
+                swatch.SwatchColor = originalColor;
+                swatch.Invalidate();
+                onColorPicked(originalHex);
+                PushLivePreviewIfActive(forceTrigger: true);
             }
         };
 
@@ -1564,7 +1649,8 @@ public class SettingsForm : Form
             24,
             24,
             pair.Color1Hex,
-            hex => pair.Color1Hex = hex);
+            hex => pair.Color1Hex = hex,
+            pair);
         topBlockPanel.Controls.Add(swatch1);
 
         ModernComboBox cmb1 = new ModernComboBox
@@ -1670,7 +1756,8 @@ public class SettingsForm : Form
             24,
             24,
             pair.Color2Hex,
-            hex => pair.Color2Hex = hex);
+            hex => pair.Color2Hex = hex,
+            pair);
         row2Panel.Controls.Add(swatch2);
 
         ModernComboBox cmb2 = new ModernComboBox
@@ -2216,31 +2303,206 @@ public class SettingsForm : Form
 
     private void ReflowPersonalizationPage()
     {
-        if (_previewCard == null || _overlayStyleCard == null || _carouselCard == null || _layoutCard == null || _behaviorCard == null)
-            return;
+        if (_previewCard != null && _overlayStyleCard != null && _carouselCard != null)
+        {
+            _previewCard.Top = 4;
+            _previewCard.FitHeightToContent(12);
 
-        _previewCard.Top = 4;
-        _previewCard.FitHeightToContent(12);
+            _overlayStyleCard.Top = _previewCard.Bottom + 10;
+            _overlayStyleCard.FitHeightToContent(12);
 
-        _overlayStyleCard.Top = _previewCard.Bottom + 10;
-        _overlayStyleCard.FitHeightToContent(12);
+            _carouselCard.Top = _overlayStyleCard.Bottom + 10;
+            _carouselCard.FitHeightToContent(12);
 
-        _carouselCard.Top = _overlayStyleCard.Bottom + 10;
-        _carouselCard.FitHeightToContent(12);
+            _pageOverlay?.RecalculateScroll();
+        }
 
-        _layoutCard.Top = _carouselCard.Bottom + 10;
-        _layoutCard.FitHeightToContent(12);
+        if (_layoutCard != null && _behaviorCard != null)
+        {
+            _layoutCard.Top = 4;
+            _layoutCard.FitHeightToContent(12);
 
-        _behaviorCard.Top = _layoutCard.Bottom + 10;
-        _behaviorCard.FitHeightToContent(12);
+            _behaviorCard.Top = _layoutCard.Bottom + 10;
+            _behaviorCard.FitHeightToContent(12);
 
-        _pagePersonalization?.RecalculateScroll();
+            _pageBehavior?.RecalculateScroll();
+        }
     }
+
+    private bool _isGroupListAnimating = false;
 
     private DarkScrollPanel CreateGroupsPage()
     {
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
+
+        _groupsMasterCard = new Win11CardPanel
+        {
+            Left = 18,
+            Top = 4,
+            Width = 468,
+            Height = 56
+        };
+
+        Label lblTitle = new Label
+        {
+            Text = "Application Groups",
+            Left = 14,
+            Top = 10,
+            Width = 280,
+            Height = 20,
+            Font = new Font("Segoe UI Semibold", 9.75f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(96, 205, 255)
+        };
+        _groupsMasterCard.Controls.Add(lblTitle);
+
+        Label lblSubtitle = new Label
+        {
+            Text = "Bundle multiple apps to control them together as a single source",
+            Left = 14,
+            Top = 30,
+            Width = 320,
+            Height = 16,
+            Font = new Font("Segoe UI", 8.0f, FontStyle.Regular),
+            ForeColor = Color.FromArgb(165, 165, 165)
+        };
+        _groupsMasterCard.Controls.Add(lblSubtitle);
+
+        _btnAddGroupEntry = CreateModernButton("+ New Group", 334, 11, 120, 26, true);
+        _btnAddGroupEntry.Click += (s, e) =>
+        {
+            if (_isGroupListAnimating) return;
+            var newGroup = new ProgramGroup
+            {
+                GroupName = $"Group {_draftSettings.Groups.Count + 1}",
+                Executables = new List<string> { "" }
+            };
+            AnimateAddGroupCard(newGroup);
+        };
+        _groupsMasterCard.Controls.Add(_btnAddGroupEntry);
+
+        _groupsSlotsHost = new BufferedPanel
+        {
+            Left = 12,
+            Top = 52,
+            Width = 444,
+            Height = 0,
+            BackColor = Color.FromArgb(39, 39, 39)
+        };
+        _groupsMasterCard.Controls.Add(_groupsSlotsHost);
+        page.InnerControls.Add(_groupsMasterCard);
+
         return page;
+    }
+
+    private void ShowGroupIconPickerMenu(ProgramGroup group, Control iconPreviewControl)
+    {
+        try
+        {
+            ContextMenuStrip menu = new ContextMenuStrip
+            {
+                Renderer = new DarkContextMenuRenderer(),
+                BackColor = Color.FromArgb(32, 32, 32),
+                ForeColor = Color.FromArgb(240, 240, 240),
+                ShowImageMargin = true,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular)
+            };
+
+            string currentPath = string.IsNullOrWhiteSpace(group.CustomIconPath)
+                ? "preset:cards"
+                : group.CustomIconPath.Trim();
+
+            foreach (var (key, displayName) in AppIconCache.DefaultGroupIconPresets)
+            {
+                Bitmap? bmp = AppIconCache.GetPresetIconPreview(key);
+                var item = new ToolStripMenuItem(displayName, bmp)
+                {
+                    Checked = currentPath.Equals(key, StringComparison.OrdinalIgnoreCase)
+                };
+                string capturedKey = key;
+                item.Click += (s, e) =>
+                {
+                    AppIconCache.InvalidateCustomIcon(group.CustomIconPath);
+                    group.CustomIconPath = capturedKey;
+                    iconPreviewControl.Invalidate();
+                    PopulateCycleListUI();
+                    MarkDirty();
+                    PushLivePreviewIfActive(forceTrigger: true);
+                };
+                menu.Items.Add(item);
+            }
+
+            menu.Items.Add(new ToolStripSeparator());
+
+            var browseItem = new ToolStripMenuItem("Browse Custom Icon (.ico, .exe, .png)...");
+            browseItem.Click += (s, e) => BrowseForGroupIcon(group, iconPreviewControl);
+            menu.Items.Add(browseItem);
+
+            menu.Show(iconPreviewControl, new Point(0, iconPreviewControl.Height + 2));
+        }
+        catch { }
+    }
+
+    private void BrowseForGroupIcon(ProgramGroup group, Control iconPreviewControl)
+    {
+        try
+        {
+            using OpenFileDialog dlg = new OpenFileDialog
+            {
+                Title = "Select Custom Group Icon (.ico, .exe, .png, .jpg)",
+                Filter = "Icons, Apps & Images (*.ico;*.exe;*.png;*.jpg;*.bmp)|*.ico;*.exe;*.png;*.jpg;*.bmp|All Files (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                AppIconCache.InvalidateCustomIcon(group.CustomIconPath);
+                group.CustomIconPath = dlg.FileName;
+                AppIconCache.InvalidateCustomIcon(group.CustomIconPath);
+                iconPreviewControl.Invalidate();
+                PopulateCycleListUI();
+                MarkDirty();
+                PushLivePreviewIfActive(forceTrigger: true);
+            }
+        }
+        catch { }
+    }
+
+    private List<Win11CardPanel> GetOrderedGroupCards()
+    {
+        if (_groupsSlotsHost == null) return new List<Win11CardPanel>();
+        return _groupsSlotsHost.Controls
+            .OfType<Win11CardPanel>()
+            .OrderBy(c =>
+            {
+                if (c.Tag is ProgramGroup grp)
+                {
+                    int idx = _draftSettings.Groups.IndexOf(grp);
+                    if (idx >= 0) return idx;
+                }
+                return int.MaxValue;
+            })
+            .ToList();
+    }
+
+    private void ReflowGroupsPage()
+    {
+        if (_groupsMasterCard == null || _groupsSlotsHost == null) return;
+
+        if (!_isGroupListAnimating)
+        {
+            int y = 0;
+            foreach (Win11CardPanel c in GetOrderedGroupCards())
+            {
+                c.Top = y;
+                y += c.Height + 6;
+            }
+            _groupsSlotsHost.Height = y;
+        }
+
+        _groupsSlotsHost.Visible = (_groupsSlotsHost.Controls.Count > 0 && _groupsSlotsHost.Height > 0);
+        _groupsMasterCard.Height = !_groupsSlotsHost.Visible ? 56 : (54 + _groupsSlotsHost.Height + 6);
+        _pageGroups?.RecalculateScroll();
     }
 
     private void SyncDraftPersonalizationFields()
@@ -2250,17 +2512,21 @@ public class SettingsForm : Form
 
         _draftSettings.OverlayPosition = _cmbPosition?.SelectedItem?.ToString() ?? _draftSettings.OverlayPosition;
         _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration?.Text ?? "2500", 2500), 500, 10000);
-        _draftSettings.OverlayOpacity = Math.Clamp(ParseInt(_txtOverlayOpacity?.Text ?? "100", 100), 10, 100);
+        _draftSettings.OverlayOpacity = _sldOverlayOpacity?.Value ?? _draftSettings.OverlayOpacity;
         _draftSettings.OverlayWidth = Math.Clamp(ParseInt(_txtWidth?.Text ?? "360", 360), 120, 2000);
         _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight?.Text ?? "80", 80), 50, 1000);
         _draftSettings.EnableInterpolation = _chkInterpolation?.Checked ?? true;
-        _draftSettings.InterpolationSpeed = Math.Clamp(ParseInt(_txtInterpSpeed?.Text ?? "45", 45), 5, 100);
-        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed?.Text ?? "55", 55), 5, 100);
+        _draftSettings.InterpolationSpeed = _sldInterpSpeed?.Value ?? _draftSettings.InterpolationSpeed;
+        _draftSettings.StepSize = _sldStepSize?.Value ?? _draftSettings.StepSize;
+        _draftSettings.CarouselOpenSpeed = _sldCarouselOpenSpeed?.Value ?? _draftSettings.CarouselOpenSpeed;
+        _draftSettings.CarouselAnimationSpeed = _sldCarouselSpeed?.Value ?? _draftSettings.CarouselAnimationSpeed;
 
-        string mode = _cmbCarouselMode?.SelectedItem?.ToString() ?? "Full Carousel";
+        string mode = _cmbCarouselMode?.SelectedItem?.ToString() ?? "Full";
         _draftSettings.CarouselMode = mode;
         _draftSettings.InvertCarouselScroll = _chkInvertCarouselScroll?.Checked ?? false;
         _draftSettings.CardOrderDirection = _cmbCardOrder?.SelectedItem?.ToString() ?? "Ascending";
+        _draftSettings.NeighborPreviewVisibility = _cmbNeighborPreviewMode?.SelectedItem?.ToString() ?? "While Switching";
+        _draftSettings.CompactShowNeighborPreviews = _draftSettings.NeighborPreviewVisibility != "Off";
 
         if (mode == "None")
         {
@@ -2268,16 +2534,16 @@ public class SettingsForm : Form
         }
         else
         {
-            var selectedStyleState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle?.SelectedItem?.ToString());
+            var selectedStyleState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle?.SelectedItem?.ToString(), mode);
             string styleName = CarouselStyleStateMachine.ToDisplayName(selectedStyleState);
             _draftSettings.CarouselMotionStyle = styleName;
-            _draftSettings.CarouselVisibleNeighbors = (mode == "Full Carousel") ? 1.5f : 0.0f;
+            _draftSettings.CarouselVisibleNeighbors = (mode == "Full") ? 1.5f : 0.0f;
 
-            if (mode == "Full Carousel") _draftSettings.LastFullCarouselStyle = styleName;
-            else if (mode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = styleName;
+            if (mode == "Full") _draftSettings.LastFullCarouselStyle = styleName;
+            else if (mode == "Compact") _draftSettings.LastCompactCarouselStyle = styleName;
+            else if (mode == "Minimal") _draftSettings.LastMinimalCarouselStyle = styleName;
         }
 
-        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews?.Checked ?? true;
         _draftSettings.EnableCarouselAnimation = _chkEnableAnimations?.Checked ?? true;
         _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg?.Checked ?? true;
     }
@@ -2292,7 +2558,7 @@ public class SettingsForm : Form
         }
     }
 
-    private DarkScrollPanel CreatePersonalizationPage()
+    private DarkScrollPanel CreateOverlayPage()
     {
         DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
         int y = 4;
@@ -2345,7 +2611,7 @@ public class SettingsForm : Form
 
         Label lblIdMode = new Label
         {
-            Text = "App Display:",
+            Text = "Header Style:",
             Left = 14,
             Top = sy + 4,
             Width = 165,
@@ -2375,7 +2641,7 @@ public class SettingsForm : Form
 
         Label lblLvlMode = new Label
         {
-            Text = "Volume Display:",
+            Text = "Level Indicator:",
             Left = 14,
             Top = sy + 4,
             Width = 165,
@@ -2405,7 +2671,7 @@ public class SettingsForm : Form
 
         Label lblOpacity = new Label
         {
-            Text = "Opacity (10 - 100%):",
+            Text = "Overlay Opacity:",
             Left = 14,
             Top = sy + 3,
             Width = 165,
@@ -2414,22 +2680,23 @@ public class SettingsForm : Form
         };
         _overlayStyleCard.Controls.Add(lblOpacity);
 
-        _txtOverlayOpacity = new TextBox
+        _sldOverlayOpacity = new ModernSlider
         {
-            Text = _draftSettings.OverlayOpacity.ToString(),
+            Minimum = 10,
+            Maximum = 100,
+            Value = Math.Clamp(_draftSettings.OverlayOpacity, 10, 100),
+            ValueSuffix = "%",
             Left = 185,
             Top = sy,
-            Width = 90,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
+            Width = 265
         };
-        _txtOverlayOpacity.TextChanged += (s, e) =>
+        _sldOverlayOpacity.ValueChanged += (s, e) =>
         {
+            if (_isInitializing) return;
             MarkDirty();
             PushLivePreviewIfActive();
         };
-        _overlayStyleCard.Controls.Add(_txtOverlayOpacity);
+        _overlayStyleCard.Controls.Add(_sldOverlayOpacity);
         sy += 30;
 
         _unmutedColorBox = AddColorPickerRow(_overlayStyleCard, "Active Bar Color:", _draftSettings.UnmutedColor, (hex) =>
@@ -2489,7 +2756,6 @@ public class SettingsForm : Form
         page.InnerControls.Add(_overlayStyleCard);
         y = _overlayStyleCard.Bottom + 10;
 
-        // 3. Carousel & Pair Switching Card
         _carouselCard = new Win11CardPanel
         {
             Left = 18,
@@ -2518,8 +2784,8 @@ public class SettingsForm : Form
             Width = 265,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _cmbCarouselMode.Items.AddRange(new object[] { "None", "Full Carousel", "Compact Carousel" });
-        _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.CarouselMode) ? "Full Carousel" : _draftSettings.CarouselMode;
+        _cmbCarouselMode.Items.AddRange(new object[] { "None", "Full", "Compact", "Minimal" });
+        _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.CarouselMode) ? "Full" : _draftSettings.CarouselMode;
         if (_cmbCarouselMode.SelectedIndex == -1) _cmbCarouselMode.SelectedIndex = 1;
         _carouselCard.Controls.Add(_cmbCarouselMode);
         cy += 32;
@@ -2541,23 +2807,31 @@ public class SettingsForm : Form
             Top = cy,
             Width = 265,
             DropDownStyle = ComboBoxStyle.DropDownList,
-            BadgeResolver = null // No redundant tags needed!
+            BadgeResolver = null
         };
         _carouselCard.Controls.Add(_cmbCarouselStyle);
         cy += 32;
 
-        _chkCompactNeighborPreviews = new CheckBox
+        Label lblNeighborPreviews = new Label
         {
-            Text = "Preview neighboring pairs on sides",
-            Checked = _draftSettings.CompactShowNeighborPreviews,
+            Text = "Idle Previews:",
             Left = 14,
-            Top = cy,
-            Width = 430,
-            Height = 22,
-            ForeColor = Color.FromArgb(230, 230, 230)
+            Top = cy + 4,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
         };
-        _chkCompactNeighborPreviews.CheckedChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
-        _carouselCard.Controls.Add(_chkCompactNeighborPreviews);
+        _carouselCard.Controls.Add(lblNeighborPreviews);
+
+        _cmbNeighborPreviewMode = new ModernComboBox
+        {
+            Left = 185,
+            Top = cy,
+            Width = 265,
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        _carouselCard.Controls.Add(_cmbNeighborPreviewMode);
+        cy += 32;
 
         _chkEnableAnimations = new CheckBox
         {
@@ -2584,9 +2858,32 @@ public class SettingsForm : Form
         _chkCarouselBg.CheckedChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
         _carouselCard.Controls.Add(_chkCarouselBg);
 
+        Label lblCarouselOpenSpeed = new Label
+        {
+            Text = "Carousel Open Speed:",
+            Left = 14,
+            Top = cy,
+            Width = 165,
+            Height = 20,
+            ForeColor = Color.FromArgb(205, 205, 205)
+        };
+        _carouselCard.Controls.Add(lblCarouselOpenSpeed);
+
+        _sldCarouselOpenSpeed = new ModernSlider
+        {
+            Minimum = 5,
+            Maximum = 100,
+            Value = Math.Clamp(_draftSettings.CarouselOpenSpeed, 5, 100),
+            Left = 185,
+            Top = cy,
+            Width = 265
+        };
+        _sldCarouselOpenSpeed.ValueChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_sldCarouselOpenSpeed);
+
         Label lblCarouselSpeed = new Label
         {
-            Text = "Switch Speed (5 - 100):",
+            Text = "Carousel Scroll Speed:",
             Left = 14,
             Top = cy,
             Width = 165,
@@ -2595,26 +2892,25 @@ public class SettingsForm : Form
         };
         _carouselCard.Controls.Add(lblCarouselSpeed);
 
-        _txtCarouselSpeed = new TextBox
+        _sldCarouselSpeed = new ModernSlider
         {
-            Text = _draftSettings.CarouselAnimationSpeed.ToString(),
+            Minimum = 5,
+            Maximum = 100,
+            Value = Math.Clamp(_draftSettings.CarouselAnimationSpeed, 5, 100),
             Left = 185,
             Top = cy,
-            Width = 90,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
+            Width = 265
         };
-        _txtCarouselSpeed.TextChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
-        _carouselCard.Controls.Add(_txtCarouselSpeed);
+        _sldCarouselSpeed.ValueChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
+        _carouselCard.Controls.Add(_sldCarouselSpeed);
 
         _chkInvertCarouselScroll = new CheckBox
         {
-            Text = "Invert scroll direction",
+            Text = "Invert carousel scroll direction",
             Checked = _draftSettings.InvertCarouselScroll,
             Left = 14,
             Top = cy,
-            Width = 210,
+            Width = 430,
             Height = 22,
             ForeColor = Color.FromArgb(230, 230, 230)
         };
@@ -2623,10 +2919,10 @@ public class SettingsForm : Form
 
         Label lblCardOrder = new Label
         {
-            Text = "Card Order:",
-            Left = 230,
+            Text = "Card Order Direction:",
+            Left = 14,
             Top = cy,
-            Width = 75,
+            Width = 165,
             Height = 20,
             ForeColor = Color.FromArgb(205, 205, 205)
         };
@@ -2634,9 +2930,9 @@ public class SettingsForm : Form
 
         _cmbCardOrder = new ModernComboBox
         {
-            Left = 310,
+            Left = 185,
             Top = cy,
-            Width = 140,
+            Width = 265,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         _cmbCardOrder.Items.AddRange(new object[] { "Ascending", "Descending" });
@@ -2645,11 +2941,23 @@ public class SettingsForm : Form
         _cmbCardOrder.SelectedIndexChanged += (s, e) => { if (!_isInitializing) { MarkDirty(); PushLivePreviewIfActive(); } };
         _carouselCard.Controls.Add(_cmbCardOrder);
 
+        _cmbNeighborPreviewMode.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            _draftSettings.NeighborPreviewVisibility = _cmbNeighborPreviewMode.SelectedItem?.ToString() ?? "While Switching";
+            _draftSettings.CompactShowNeighborPreviews = _draftSettings.NeighborPreviewVisibility != "Off";
+            MarkDirty();
+            PushLivePreviewIfActive();
+        };
+
         _chkEnableAnimations.CheckedChanged += (s, e) =>
         {
             if (_isInitializing) return;
-            var curSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
-            _txtCarouselSpeed.Enabled = _chkEnableAnimations.Checked && curSt != CarouselStyleState.CompactInstantCut;
+            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full";
+            var curSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString(), mode);
+            bool canAnim = _chkEnableAnimations.Checked && !CarouselStyleStateMachine.IsInstantCut(curSt);
+            _sldCarouselOpenSpeed.Enabled = canAnim;
+            _sldCarouselSpeed.Enabled = canAnim;
             MarkDirty();
             PushLivePreviewIfActive();
         };
@@ -2657,17 +2965,19 @@ public class SettingsForm : Form
         _cmbCarouselStyle.SelectedIndexChanged += (s, e) =>
         {
             if (_isInitializing) return;
-            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
-            var nextState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full";
+            var nextState = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString(), mode);
             string styleName = CarouselStyleStateMachine.ToDisplayName(nextState);
 
             _draftSettings.CarouselMotionStyle = styleName;
-            if (mode == "Full Carousel") _draftSettings.LastFullCarouselStyle = styleName;
-            else if (mode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = styleName;
+            if (mode == "Full") _draftSettings.LastFullCarouselStyle = styleName;
+            else if (mode == "Compact") _draftSettings.LastCompactCarouselStyle = styleName;
+            else if (mode == "Minimal") _draftSettings.LastMinimalCarouselStyle = styleName;
 
-            bool canAnimate = (nextState != CarouselStyleState.CompactInstantCut);
+            bool canAnimate = !CarouselStyleStateMachine.IsInstantCut(nextState);
             _chkEnableAnimations.Enabled = canAnimate;
-            _txtCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+            _sldCarouselOpenSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+            _sldCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
 
             MarkDirty();
             PushLivePreviewIfActive();
@@ -2675,10 +2985,10 @@ public class SettingsForm : Form
 
         void ApplyCarouselModeLayout(bool animate)
         {
-            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
+            string mode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full";
             bool isNone = (mode == "None");
-            bool isFull = (mode == "Full Carousel");
-            bool isCompact = (mode == "Compact Carousel");
+            bool isFull = (mode == "Full");
+            bool isCompact = (mode == "Compact");
 
             int targetHeight;
             if (isNone)
@@ -2687,58 +2997,85 @@ public class SettingsForm : Form
             }
             else
             {
-                // Populate the style dropdown with ONLY the styles for the active mode
-                // and restore the user's last remembered style for that mode!
                 bool prevInit = _isInitializing;
                 _isInitializing = true;
+
                 _cmbCarouselStyle.Items.Clear();
                 if (isFull)
                 {
                     _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.FullDisplayNames);
-                    string remembered = string.IsNullOrWhiteSpace(_draftSettings.LastFullCarouselStyle)
+                    _cmbCarouselStyle.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.LastFullCarouselStyle)
                         ? "3D Floating Pills"
                         : _draftSettings.LastFullCarouselStyle;
-                    _cmbCarouselStyle.SelectedItem = remembered;
+                }
+                else if (isCompact)
+                {
+                    _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.CompactDisplayNames);
+                    _cmbCarouselStyle.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.LastCompactCarouselStyle)
+                        ? "Top/Bottom Preview Morph"
+                        : _draftSettings.LastCompactCarouselStyle;
                 }
                 else
                 {
-                    _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.CompactDisplayNames);
-                    string remembered = string.IsNullOrWhiteSpace(_draftSettings.LastCompactCarouselStyle)
+                    _cmbCarouselStyle.Items.AddRange(CarouselStyleStateMachine.MinimalDisplayNames);
+                    _cmbCarouselStyle.SelectedItem = string.IsNullOrWhiteSpace(_draftSettings.LastMinimalCarouselStyle)
                         ? "Side Preview Morph"
-                        : _draftSettings.LastCompactCarouselStyle;
-                    _cmbCarouselStyle.SelectedItem = remembered;
+                        : _draftSettings.LastMinimalCarouselStyle;
                 }
                 if (_cmbCarouselStyle.SelectedIndex == -1 && _cmbCarouselStyle.Items.Count > 0)
                     _cmbCarouselStyle.SelectedIndex = 0;
 
-                var activeSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+                string curPreviewChoice = _draftSettings.NeighborPreviewVisibility;
+                _cmbNeighborPreviewMode.Items.Clear();
+                if (isFull)
+                {
+                    _cmbNeighborPreviewMode.Items.AddRange(new object[] { "While Switching", "Always" });
+                    _cmbNeighborPreviewMode.SelectedItem = (curPreviewChoice == "Always") ? "Always" : "While Switching";
+                }
+                else
+                {
+                    _cmbNeighborPreviewMode.Items.AddRange(new object[] { "Always", "While Switching", "Off" });
+                    _cmbNeighborPreviewMode.SelectedItem = curPreviewChoice;
+                    if (_cmbNeighborPreviewMode.SelectedIndex == -1) _cmbNeighborPreviewMode.SelectedIndex = 0;
+                }
+
+                var activeSt = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString(), mode);
                 string activeStyleName = CarouselStyleStateMachine.ToDisplayName(activeSt);
                 _draftSettings.CarouselMotionStyle = activeStyleName;
                 if (isFull) _draftSettings.LastFullCarouselStyle = activeStyleName;
-                else _draftSettings.LastCompactCarouselStyle = activeStyleName;
+                else if (isCompact) _draftSettings.LastCompactCarouselStyle = activeStyleName;
+                else _draftSettings.LastMinimalCarouselStyle = activeStyleName;
 
-                bool canAnimate = (activeSt != CarouselStyleState.CompactInstantCut);
+                bool canAnimate = !CarouselStyleStateMachine.IsInstantCut(activeSt);
                 _chkEnableAnimations.Enabled = canAnimate;
-                _txtCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+                _sldCarouselOpenSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
+                _sldCarouselSpeed.Enabled = canAnimate && _chkEnableAnimations.Checked;
                 _isInitializing = prevInit;
 
-                // Dynamically stack visible rows with zero empty space!
                 int rowY = _cmbCarouselStyle.Bottom + 7;
-                if (isCompact)
-                {
-                    _chkCompactNeighborPreviews.Top = rowY;
-                    rowY += 26;
-                }
+
+                lblNeighborPreviews.Top = rowY + 4;
+                _cmbNeighborPreviewMode.Top = rowY;
+                rowY += 32;
 
                 _chkEnableAnimations.Top = rowY;
                 _chkCarouselBg.Top = rowY;
                 rowY += 28;
 
+                if (isFull)
+                {
+                    lblCarouselOpenSpeed.Top = rowY + 3;
+                    _sldCarouselOpenSpeed.Top = rowY;
+                    rowY += 30;
+                }
+
                 lblCarouselSpeed.Top = rowY + 3;
-                _txtCarouselSpeed.Top = rowY;
+                _sldCarouselSpeed.Top = rowY;
                 rowY += 30;
 
-                _chkInvertCarouselScroll.Top = rowY + 2;
+                _chkInvertCarouselScroll.Top = rowY;
+                rowY += 28;
+
                 lblCardOrder.Top = rowY + 4;
                 _cmbCardOrder.Top = rowY;
                 rowY += 25;
@@ -2746,39 +3083,33 @@ public class SettingsForm : Form
                 targetHeight = rowY + 12;
             }
 
-            if (!animate || !this.IsHandleCreated || _isInitializing)
+            void SetTargetControlVisibility()
             {
-                _carouselCardAnimTimer?.Stop();
                 lblCarouselMotion.Visible = !isNone;
                 _cmbCarouselStyle.Visible = !isNone;
-                _chkCompactNeighborPreviews.Visible = isCompact;
+                lblNeighborPreviews.Visible = !isNone;
+                _cmbNeighborPreviewMode.Visible = !isNone;
                 _chkCarouselBg.Visible = isFull;
                 _chkEnableAnimations.Visible = !isNone;
+                lblCarouselOpenSpeed.Visible = isFull;
+                _sldCarouselOpenSpeed.Visible = isFull;
                 lblCarouselSpeed.Visible = !isNone;
-                _txtCarouselSpeed.Visible = !isNone;
+                _sldCarouselSpeed.Visible = !isNone;
                 _chkInvertCarouselScroll.Visible = !isNone;
                 lblCardOrder.Visible = !isNone;
                 _cmbCardOrder.Visible = !isNone;
+            }
 
+            if (!animate || !this.IsHandleCreated || _isInitializing)
+            {
+                _carouselCardAnimTimer?.Stop();
+                SetTargetControlVisibility();
                 _carouselCard.Height = targetHeight;
                 ReflowPersonalizationPage();
                 return;
             }
 
-            // Show controls that belong to the target state during the smooth height transition
-            if (!isNone)
-            {
-                lblCarouselMotion.Visible = true;
-                _cmbCarouselStyle.Visible = true;
-                _chkCompactNeighborPreviews.Visible = isCompact;
-                _chkCarouselBg.Visible = isFull;
-                _chkEnableAnimations.Visible = true;
-                lblCarouselSpeed.Visible = true;
-                _txtCarouselSpeed.Visible = true;
-                _chkInvertCarouselScroll.Visible = true;
-                lblCardOrder.Visible = true;
-                _cmbCardOrder.Visible = true;
-            }
+            if (!isNone) SetTargetControlVisibility();
 
             int startHeight = _carouselCard.Height;
             _carouselCardAnimTimer?.Stop();
@@ -2801,17 +3132,7 @@ public class SettingsForm : Form
                 if (t >= 1.0)
                 {
                     _carouselCardAnimTimer.Stop();
-                    lblCarouselMotion.Visible = !isNone;
-                    _cmbCarouselStyle.Visible = !isNone;
-                    _chkCompactNeighborPreviews.Visible = isCompact;
-                    _chkCarouselBg.Visible = isFull;
-                    _chkEnableAnimations.Visible = !isNone;
-                    lblCarouselSpeed.Visible = !isNone;
-                    _txtCarouselSpeed.Visible = !isNone;
-                    _chkInvertCarouselScroll.Visible = !isNone;
-                    lblCardOrder.Visible = !isNone;
-                    _cmbCardOrder.Visible = !isNone;
-
+                    SetTargetControlVisibility();
                     _carouselCard.Height = targetHeight;
                 }
                 else
@@ -2819,9 +3140,7 @@ public class SettingsForm : Form
                     _carouselCard.Height = startHeight + (int)Math.Round((targetHeight - startHeight) * ease);
                 }
 
-                _layoutCard.Top = _carouselCard.Bottom + 10;
-                _behaviorCard.Top = _layoutCard.Bottom + 10;
-                _pagePersonalization?.RecalculateScroll();
+                _pageOverlay?.RecalculateScroll();
             };
             _carouselCardAnimTimer.Start();
         }
@@ -2836,9 +3155,15 @@ public class SettingsForm : Form
 
         ApplyCarouselModeLayout(animate: false);
         page.InnerControls.Add(_carouselCard);
-        y = _carouselCard.Bottom + 10;
+        page.RecalculateScroll();
+        return page;
+    }
 
-        // 4. Position & Size Card
+    private DarkScrollPanel CreateBehaviorPage()
+    {
+        DarkScrollPanel page = new DarkScrollPanel { Dock = DockStyle.Fill };
+        int y = 4;
+
         _layoutCard = new Win11CardPanel
         {
             Left = 18,
@@ -3059,7 +3384,6 @@ public class SettingsForm : Form
         page.InnerControls.Add(_layoutCard);
         y = _layoutCard.Bottom + 10;
 
-        // 5. Audio & System Behavior Card (Cleanly aligned 2-column grid)
         _behaviorCard = new Win11CardPanel
         {
             Left = 18,
@@ -3072,7 +3396,7 @@ public class SettingsForm : Form
 
         Label lblStep = new Label
         {
-            Text = "Fade Step (%):",
+            Text = "Knob Step Size:",
             Left = 14,
             Top = by + 3,
             Width = 165,
@@ -3081,23 +3405,23 @@ public class SettingsForm : Form
         };
         _behaviorCard.Controls.Add(lblStep);
 
-        _txtStepSize = new TextBox
+        _sldStepSize = new ModernSlider
         {
-            Text = _draftSettings.StepSize.ToString(),
+            Minimum = 1,
+            Maximum = 50,
+            Value = Math.Clamp(_draftSettings.StepSize, 1, 50),
+            ValueSuffix = "%",
             Left = 185,
             Top = by,
-            Width = 90,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
+            Width = 265
         };
-        _txtStepSize.TextChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_txtStepSize);
+        _sldStepSize.ValueChanged += (s, e) => { if (!_isInitializing) MarkDirty(); };
+        _behaviorCard.Controls.Add(_sldStepSize);
         by += 30;
 
         Label lblSpeed = new Label
         {
-            Text = "Animation Speed (5 - 100):",
+            Text = "Volume Smoothing Speed:",
             Left = 14,
             Top = by + 3,
             Width = 165,
@@ -3106,24 +3430,23 @@ public class SettingsForm : Form
         };
         _behaviorCard.Controls.Add(lblSpeed);
 
-        _txtInterpSpeed = new TextBox
+        _sldInterpSpeed = new ModernSlider
         {
-            Text = _draftSettings.InterpolationSpeed.ToString(),
+            Minimum = 5,
+            Maximum = 100,
+            Value = Math.Clamp(_draftSettings.InterpolationSpeed, 5, 100),
+            Enabled = _draftSettings.EnableInterpolation,
             Left = 185,
             Top = by,
-            Width = 90,
-            Enabled = _draftSettings.EnableInterpolation,
-            BackColor = Color.FromArgb(48, 48, 48),
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle
+            Width = 265
         };
-        _txtInterpSpeed.TextChanged += (s, e) => MarkDirty();
-        _behaviorCard.Controls.Add(_txtInterpSpeed);
+        _sldInterpSpeed.ValueChanged += (s, e) => { if (!_isInitializing) MarkDirty(); };
+        _behaviorCard.Controls.Add(_sldInterpSpeed);
         by += 30;
 
         _chkInterpolation = new CheckBox
         {
-            Text = "Smooth animation",
+            Text = "Smooth volume interpolation",
             Checked = _draftSettings.EnableInterpolation,
             Left = 14,
             Top = by,
@@ -3133,7 +3456,7 @@ public class SettingsForm : Form
         };
         _chkInterpolation.CheckedChanged += (s, e) =>
         {
-            if (_txtInterpSpeed != null) _txtInterpSpeed.Enabled = _chkInterpolation.Checked;
+            if (_sldInterpSpeed != null) _sldInterpSpeed.Enabled = _chkInterpolation.Checked;
             MarkDirty();
             PushLivePreviewIfActive();
         };
@@ -3237,7 +3560,7 @@ public class SettingsForm : Form
         _kbKeyCycleNext.Binding = settings.GetEffectiveCycleNextKey();
         _kbKeyCyclePrev.Binding = settings.CyclePrevKey;
 
-        _txtStepSize.Text = settings.StepSize.ToString();
+        _sldStepSize.Value = Math.Clamp(settings.StepSize, 1, 50);
         _chkBuffer.Checked = settings.EnableEqualizationBuffer;
         _chkStartup.Checked = settings.RunOnStartup;
 
@@ -3245,25 +3568,33 @@ public class SettingsForm : Form
         _cmbIdentityMode.SelectedItem = settings.OverlayIdentityMode;
         _cmbLevelMode.SelectedItem = settings.OverlayLevelMode;
 
-        var loadedStyle = CarouselStyleStateMachine.ParseState(settings.CarouselMotionStyle);
+        string currentMode = string.IsNullOrWhiteSpace(settings.CarouselMode) ? "Full" : settings.CarouselMode;
+        var loadedStyle = CarouselStyleStateMachine.ParseState(settings.CarouselMotionStyle, currentMode);
         string loadedStyleName = CarouselStyleStateMachine.ToDisplayName(loadedStyle);
         if (CarouselStyleStateMachine.IsWideCarousel(loadedStyle))
             _draftSettings.LastFullCarouselStyle = loadedStyleName;
-        else
+        else if (CarouselStyleStateMachine.IsCompactCarousel(loadedStyle))
             _draftSettings.LastCompactCarouselStyle = loadedStyleName;
+        else
+            _draftSettings.LastMinimalCarouselStyle = loadedStyleName;
 
         _chkUseSourceBgColors.Checked = settings.UseSourceBackgroundColors;
         _chkFadeBgWithVolume.Checked = settings.FadeBgColorWithVolume;
         _chkFadeBgWithVolume.Enabled = settings.UseSourceBackgroundColors;
-        _chkCompactNeighborPreviews.Checked = settings.CompactShowNeighborPreviews;
         _chkEnableAnimations.Checked = settings.EnableCarouselAnimation;
-        _txtCarouselSpeed.Text = settings.CarouselAnimationSpeed.ToString();
+        if (_sldCarouselOpenSpeed != null) _sldCarouselOpenSpeed.Value = Math.Clamp(settings.CarouselOpenSpeed, 5, 100);
+        _sldCarouselSpeed.Value = Math.Clamp(settings.CarouselAnimationSpeed, 5, 100);
         _chkCarouselBg.Checked = settings.CarouselBackgroundEnabled;
 
         if (_cmbCarouselMode != null)
         {
-            _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(settings.CarouselMode) ? "Full Carousel" : settings.CarouselMode;
+            _cmbCarouselMode.SelectedItem = string.IsNullOrWhiteSpace(settings.CarouselMode) ? "Full" : settings.CarouselMode;
             if (_cmbCarouselMode.SelectedIndex == -1) _cmbCarouselMode.SelectedIndex = 1;
+        }
+        if (_cmbNeighborPreviewMode != null)
+        {
+            _cmbNeighborPreviewMode.SelectedItem = string.IsNullOrWhiteSpace(settings.NeighborPreviewVisibility) ? "While Switching" : settings.NeighborPreviewVisibility;
+            if (_cmbNeighborPreviewMode.SelectedIndex == -1) _cmbNeighborPreviewMode.SelectedIndex = 0;
         }
         if (_chkInvertCarouselScroll != null) _chkInvertCarouselScroll.Checked = settings.InvertCarouselScroll;
         if (_cmbCardOrder != null)
@@ -3287,12 +3618,12 @@ public class SettingsForm : Form
 
         _cmbPosition.SelectedItem = settings.OverlayPosition;
         _txtPopupDuration.Text = settings.PopupDurationMs.ToString();
-        _txtOverlayOpacity.Text = settings.OverlayOpacity.ToString();
+        _sldOverlayOpacity.Value = Math.Clamp(settings.OverlayOpacity, 10, 100);
         _txtWidth.Text = settings.OverlayWidth.ToString();
         _txtHeight.Text = settings.OverlayHeight.ToString();
         _chkInterpolation.Checked = settings.EnableInterpolation;
-        _txtInterpSpeed.Text = settings.InterpolationSpeed.ToString();
-        _txtInterpSpeed.Enabled = settings.EnableInterpolation;
+        _sldInterpSpeed.Value = Math.Clamp(settings.InterpolationSpeed, 5, 100);
+        _sldInterpSpeed.Enabled = settings.EnableInterpolation;
 
         ReflowGeneralPage();
         ReflowPersonalizationPage();
@@ -3315,159 +3646,596 @@ public class SettingsForm : Form
 
     private void PopulateGroupsFlowContent()
     {
-        if (_pageGroups == null) return;
-        _pageGroups.SuspendLayout();
-        _pageGroups.InnerControls.Clear();
+        if (_groupsSlotsHost == null) return;
+        _groupsSlotsHost.SuspendLayout();
+        _groupsSlotsHost.Controls.Clear();
 
-        int cardW = Math.Max(468, _pageGroups.ContentViewportWidth - 28);
-
-        Label lblInfo = new Label
-        {
-            Text = "Bundle multiple apps to control them as a single source:",
-            Left = 18,
-            Top = 10,
-            Width = 335,
-            Height = 22,
-            ForeColor = Color.FromArgb(190, 190, 190)
-        };
-        _pageGroups.InnerControls.Add(lblInfo);
-
-        ModernButton btnAddGroup = CreateModernButton("+ New Group", 18 + cardW - 126, 6, 126, 28, true);
-        btnAddGroup.Click += (s, e) =>
-        {
-            _draftSettings.Groups.Add(new ProgramGroup
-            {
-                GroupName = $"Group{_draftSettings.Groups.Count + 1}",
-                Executables = new List<string> { "" }
-            });
-            RefreshGroupsTabUI();
-            MarkDirty();
-        };
-        _pageGroups.InnerControls.Add(btnAddGroup);
-
+        int hostW = Math.Max(442, _groupsSlotsHost.Width);
         List<string> exeSuggestions = GetExecutableSuggestions();
-        int cardY = 42;
+        int y = 0;
 
         foreach (var group in _draftSettings.Groups)
         {
-            int cardHeight = 82 + (group.Executables.Count * 30);
-            Win11CardPanel card = new Win11CardPanel
-            {
-                Left = 18,
-                Top = cardY,
-                Width = cardW,
-                Height = cardHeight
-            };
-
-            Label lblGroupName = new Label
-            {
-                Text = "Name:",
-                Left = 12,
-                Top = 14,
-                Width = 44,
-                ForeColor = Color.FromArgb(195, 195, 195)
-            };
-            card.Controls.Add(lblGroupName);
-
-            int nameBoxW = Math.Max(260, cardW - 196);
-            TextBox txtGroupName = new TextBox
-            {
-                Text = group.GroupName,
-                Left = 58,
-                Top = 11,
-                Width = nameBoxW,
-                BackColor = Color.FromArgb(52, 52, 52),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            txtGroupName.TextChanged += (s, e) =>
-            {
-                group.GroupName = txtGroupName.Text.Trim();
-                MarkDirty();
-            };
-            card.Controls.Add(txtGroupName);
-
-            ModernButton btnRemoveGroup = CreateModernButton("Delete Group", cardW - 128, 10, 114, 25, false, isDanger: true);
-            btnRemoveGroup.Click += (s, e) =>
-            {
-                _draftSettings.Groups.Remove(group);
-                RefreshGroupsTabUI();
-                MarkDirty();
-            };
-            card.Controls.Add(btnRemoveGroup);
-
-            int innerY = 44;
-            int exeComboW = Math.Max(314, cardW - 154);
-
-            for (int i = 0; i < group.Executables.Count; i++)
-            {
-                int index = i;
-                ModernComboBox cmbExe = new ModernComboBox
-                {
-                    Left = 12,
-                    Top = innerY,
-                    Width = exeComboW,
-                    DropDownStyle = ComboBoxStyle.DropDown,
-                    BadgeResolver = ResolveDropdownBadge,
-                    IconResolver = ResolveDropdownIcon
-                };
-                cmbExe.Items.AddRange(exeSuggestions.Cast<object>().ToArray());
-                cmbExe.SelectedItem = group.Executables[index];
-                if (cmbExe.SelectedIndex == -1) cmbExe.Text = group.Executables[index];
-                cmbExe.DropDown += (s, e) =>
-                {
-                    _detectedAudio = AudioProcessDetector.Scan();
-                    PopulateSingleComboOptions(cmbExe, includeGroups: false);
-                };
-                cmbExe.SelectedIndexChanged += (s, e) =>
-                {
-                    if (_isInitializing) return;
-                    group.Executables[index] = ReadComboText(cmbExe);
-                    MarkDirty();
-                };
-                cmbExe.TextChanged += (s, e) =>
-                {
-                    if (_isInitializing) return;
-                    group.Executables[index] = ReadComboText(cmbExe);
-                    MarkDirty();
-                };
-                card.Controls.Add(cmbExe);
-
-                ModernButton btnBrowseExe = CreateModernButton("Browse...", 12 + exeComboW + 6, innerY - 1, 82, 25, false);
-                btnBrowseExe.Click += (s, e) =>
-                {
-                    BrowseForExecutable(cmbExe);
-                    group.Executables[index] = ReadComboText(cmbExe);
-                };
-                card.Controls.Add(btnBrowseExe);
-
-                ModernButton btnRemoveExe = CreateModernButton("✕", 12 + exeComboW + 94, innerY - 1, 34, 25, false, isDanger: true);
-                btnRemoveExe.Click += (s, e) =>
-                {
-                    group.Executables.RemoveAt(index);
-                    RefreshGroupsTabUI();
-                    MarkDirty();
-                };
-                card.Controls.Add(btnRemoveExe);
-
-                innerY += 30;
-            }
-
-            ModernButton btnAddExe = CreateModernButton("+ Add App", 12, innerY + 2, 145, 25, false);
-            btnAddExe.Click += (s, e) =>
-            {
+            if (group.Executables.Count == 0)
                 group.Executables.Add("");
-                RefreshGroupsTabUI();
-                MarkDirty();
-            };
-            card.Controls.Add(btnAddExe);
 
-            _pageGroups.InnerControls.Add(card);
-            cardY += cardHeight + 10;
+            Win11CardPanel groupCard = BuildSingleGroupCard(group, exeSuggestions, hostW);
+            groupCard.Top = y;
+            _groupsSlotsHost.Controls.Add(groupCard);
+            y += groupCard.Height + 6;
         }
 
-        _pageGroups.ResumeLayout();
-        _pageGroups.RecalculateScroll();
+        _groupsSlotsHost.ResumeLayout();
+        ReflowGroupsPage();
+    }
+
+    private void AnimateAddGroupCard(ProgramGroup newGroup)
+    {
+        if (_groupsSlotsHost == null) return;
+
+        var existingOrdered = GetOrderedGroupCards();
+        int finalTop = 0;
+        foreach (var c in existingOrdered)
+        {
+            finalTop = Math.Max(finalTop, c.Bottom + 6);
+        }
+
+        _draftSettings.Groups.Add(newGroup);
+        int hostW = Math.Max(442, _groupsSlotsHost.Width);
+        List<string> exeSuggestions = GetExecutableSuggestions();
+
+        Win11CardPanel newCard = BuildSingleGroupCard(newGroup, exeSuggestions, hostW);
+        int finalCardH = newCard.Height;
+
+        // Place the new group at its exact bottom slot below all existing groups,
+        // and smoothly grow the card & host container downward out of the bottom!
+        int startHostH = finalTop;
+        int finalHostH = finalTop + finalCardH + 6;
+
+        _groupsSlotsHost.SuspendLayout();
+        newCard.Top = finalTop;
+        newCard.Height = 0;
+        _groupsSlotsHost.Controls.Add(newCard);
+        _groupsSlotsHost.Height = Math.Max(1, startHostH);
+        _groupsSlotsHost.Visible = true;
+        _groupsSlotsHost.ResumeLayout(false);
+
+        MarkDirty();
+        ReflowGroupsPage();
+
+        _isGroupListAnimating = true;
+        const double durationMs = 190.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (newCard.IsDisposed || _groupsSlotsHost.IsDisposed)
+            {
+                _isGroupListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+            if (t >= 1.0)
+            {
+                newCard.Top = finalTop;
+                newCard.Height = finalCardH;
+                _groupsSlotsHost.Height = finalHostH;
+                _isGroupListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+            }
+            else
+            {
+                newCard.Top = finalTop;
+                newCard.Height = Math.Max(1, (int)Math.Round(finalCardH * ease));
+                _groupsSlotsHost.Height = startHostH + (int)Math.Round((finalHostH - startHostH) * ease);
+            }
+
+            ReflowGroupsPage();
+        };
+        timer.Start();
+    }
+
+    private void AnimateRemoveGroupCard(ProgramGroup groupToRemove)
+    {
+        if (_groupsSlotsHost == null) return;
+        var orderedCards = GetOrderedGroupCards();
+        int removeIndex = _draftSettings.Groups.IndexOf(groupToRemove);
+        if (removeIndex < 0) return;
+
+        Win11CardPanel? removingCard = orderedCards.FirstOrDefault(c => ReferenceEquals(c.Tag, groupToRemove));
+        if (removingCard == null) return;
+
+        int startCardH = removingCard.Height;
+        int shiftDelta = startCardH + 6;
+
+        List<(Win11CardPanel ctrl, int startY, int targetY)> trailingCards = new();
+        for (int i = removeIndex + 1; i < orderedCards.Count; i++)
+        {
+            var tc = orderedCards[i];
+            trailingCards.Add((tc, tc.Top, tc.Top - shiftDelta));
+        }
+
+        int startHostH = _groupsSlotsHost.Height;
+        int targetHostH = Math.Max(0, startHostH - shiftDelta);
+
+        _isGroupListAnimating = true;
+        const double durationMs = 190.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (_groupsSlotsHost.IsDisposed)
+            {
+                _isGroupListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+            if (t >= 1.0)
+            {
+                timer.Stop();
+                timer.Dispose();
+
+                _groupsSlotsHost.SuspendLayout();
+                _draftSettings.Groups.Remove(groupToRemove);
+                _groupsSlotsHost.Controls.Remove(removingCard);
+                removingCard.Dispose();
+
+                foreach (var item in trailingCards)
+                    item.ctrl.Top = item.targetY;
+
+                _groupsSlotsHost.Height = targetHostH;
+                _groupsSlotsHost.ResumeLayout(false);
+
+                _isGroupListAnimating = false;
+                ReflowGroupsPage();
+                MarkDirty();
+                PushLivePreviewIfActive();
+                return;
+            }
+
+            removingCard.Height = Math.Max(0, (int)Math.Round(startCardH * (1f - ease)));
+            foreach (var item in trailingCards)
+                item.ctrl.Top = item.startY + (int)Math.Round((item.targetY - item.startY) * ease);
+
+            _groupsSlotsHost.Height = startHostH + (int)Math.Round((targetHostH - startHostH) * ease);
+            ReflowGroupsPage();
+        };
+        timer.Start();
+    }
+
+    private void AnimateGroupCardHeightChange(
+        Win11CardPanel card,
+        int targetCardH,
+        Control? slidingRow,
+        int rowStartTop,
+        int rowTargetTop,
+        List<(Control ctrl, int startY, int targetY)> shiftingChildren,
+        Action? onFinished = null)
+    {
+        if (_groupsSlotsHost == null) return;
+
+        int startCardH = card.Height;
+        int deltaH = targetCardH - startCardH;
+
+        Control? btnAddExe = card.Controls.Cast<Control>().FirstOrDefault(c => c.Tag as string == "AddExeBtn");
+        int btnStartTop = btnAddExe?.Top ?? 0;
+        int btnTargetTop = targetCardH - 37;
+
+        var orderedCards = GetOrderedGroupCards();
+        int cardIdx = orderedCards.IndexOf(card);
+        List<(Win11CardPanel ctrl, int startY, int targetY)> trailingGroupCards = new();
+        for (int i = cardIdx + 1; i < orderedCards.Count; i++)
+        {
+            var tc = orderedCards[i];
+            trailingGroupCards.Add((tc, tc.Top, tc.Top + deltaH));
+        }
+
+        int startHostH = _groupsSlotsHost.Height;
+        int targetHostH = Math.Max(0, startHostH + deltaH);
+
+        _isGroupListAnimating = true;
+        const double durationMs = 175.0;
+        Stopwatch sw = Stopwatch.StartNew();
+        var timer = new System.Windows.Forms.Timer { Interval = 15 };
+
+        timer.Tick += (s, e) =>
+        {
+            if (card.IsDisposed || _groupsSlotsHost.IsDisposed)
+            {
+                _isGroupListAnimating = false;
+                timer.Stop();
+                timer.Dispose();
+                return;
+            }
+
+            double t = Math.Clamp(sw.Elapsed.TotalMilliseconds / durationMs, 0.0, 1.0);
+            float ease = (float)(1.0 - Math.Pow(1.0 - t, 3.0));
+
+            if (t >= 1.0)
+            {
+                timer.Stop();
+                timer.Dispose();
+
+                card.Height = targetCardH;
+                if (slidingRow != null && !slidingRow.IsDisposed)
+                    slidingRow.Top = rowTargetTop;
+                foreach (var sc in shiftingChildren)
+                    if (!sc.ctrl.IsDisposed) sc.ctrl.Top = sc.targetY;
+                if (btnAddExe != null)
+                {
+                    btnAddExe.Top = btnTargetTop;
+                    btnAddExe.BringToFront();
+                }
+                foreach (var tc in trailingGroupCards)
+                    tc.ctrl.Top = tc.targetY;
+
+                _groupsSlotsHost.Height = targetHostH;
+                _isGroupListAnimating = false;
+                onFinished?.Invoke();
+                ReflowGroupsPage();
+                return;
+            }
+
+            card.Height = startCardH + (int)Math.Round(deltaH * ease);
+            if (slidingRow != null && !slidingRow.IsDisposed)
+                slidingRow.Top = rowStartTop + (int)Math.Round((rowTargetTop - rowStartTop) * ease);
+            foreach (var sc in shiftingChildren)
+                if (!sc.ctrl.IsDisposed) sc.ctrl.Top = sc.startY + (int)Math.Round((sc.targetY - sc.startY) * ease);
+            if (btnAddExe != null)
+            {
+                btnAddExe.Top = btnStartTop + (int)Math.Round((btnTargetTop - btnStartTop) * ease);
+                btnAddExe.BringToFront();
+            }
+            foreach (var tc in trailingGroupCards)
+                tc.ctrl.Top = tc.startY + (int)Math.Round((tc.targetY - tc.startY) * ease);
+
+            _groupsSlotsHost.Height = startHostH + (int)Math.Round(deltaH * ease);
+            ReflowGroupsPage();
+        };
+        timer.Start();
+    }
+
+    private void RebindGroupExeRows(Win11CardPanel card, ProgramGroup group)
+    {
+        var rows = card.Controls.Cast<Control>()
+            .Where(c => c.Tag as string == "GroupExeRow")
+            .OrderBy(c => c.Top)
+            .ToList();
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            Control row = rows[i];
+            foreach (Control rc in row.Controls)
+            {
+                if (rc.Tag as string == "RemoveExeBtn")
+                {
+                    rc.Enabled = rows.Count > 1;
+                }
+            }
+        }
+    }
+
+    private BufferedPanel CreateGroupExeRowControl(
+        Win11CardPanel card,
+        ProgramGroup group,
+        int initialIndex,
+        List<string> exeSuggestions,
+        int hostW)
+    {
+        int exeComboW = Math.Max(180, hostW - 154);
+        int btnBrowseLeft = 10 + exeComboW + 6;
+        int btnRemExeLeft = btnBrowseLeft + 94 + 4;
+
+        BufferedPanel exeRow = new BufferedPanel
+        {
+            Left = 2,
+            Top = 60 + initialIndex * 31,
+            Width = hostW - 4,
+            Height = 27,
+            BackColor = Color.FromArgb(48, 48, 48),
+            Tag = "GroupExeRow"
+        };
+
+        int GetCurrentRowIndex()
+        {
+            var ordered = card.Controls.Cast<Control>()
+                .Where(c => c.Tag as string == "GroupExeRow")
+                .OrderBy(c => c.Top)
+                .ToList();
+            return ordered.IndexOf(exeRow);
+        }
+
+        ModernComboBox cmbExe = new ModernComboBox
+        {
+            Left = 8,
+            Top = 1,
+            Width = exeComboW,
+            DropDownStyle = ComboBoxStyle.DropDown,
+            BadgeResolver = ResolveDropdownBadge,
+            IconResolver = ResolveDropdownIcon,
+            Tag = "ExeCombo"
+        };
+        cmbExe.Items.AddRange(exeSuggestions.Cast<object>().ToArray());
+        string initVal = (initialIndex >= 0 && initialIndex < group.Executables.Count) ? group.Executables[initialIndex] : "";
+        cmbExe.SelectedItem = initVal;
+        if (cmbExe.SelectedIndex == -1) cmbExe.Text = initVal;
+
+        cmbExe.DropDown += (s, e) =>
+        {
+            _detectedAudio = AudioProcessDetector.Scan();
+            PopulateSingleComboOptions(cmbExe, includeGroups: false);
+        };
+        cmbExe.SelectedIndexChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            int idx = GetCurrentRowIndex();
+            if (idx >= 0 && idx < group.Executables.Count)
+            {
+                group.Executables[idx] = ReadComboText(cmbExe);
+                MarkDirty();
+            }
+        };
+        cmbExe.TextChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            int idx = GetCurrentRowIndex();
+            if (idx >= 0 && idx < group.Executables.Count)
+            {
+                group.Executables[idx] = ReadComboText(cmbExe);
+                MarkDirty();
+            }
+        };
+        exeRow.Controls.Add(cmbExe);
+
+        ModernButton btnBrowseExe = CreateModernButton("Browse", btnBrowseLeft, 1, 94, 25, false);
+        btnBrowseExe.Tag = "BrowseExeBtn";
+        btnBrowseExe.Click += (s, e) =>
+        {
+            BrowseForExecutable(cmbExe);
+            int idx = GetCurrentRowIndex();
+            if (idx >= 0 && idx < group.Executables.Count)
+            {
+                group.Executables[idx] = ReadComboText(cmbExe);
+            }
+        };
+        exeRow.Controls.Add(btnBrowseExe);
+
+        ModernButton btnRemoveExe = CreateModernButton("✕", btnRemExeLeft, 1, 32, 25, false, isDanger: true);
+        btnRemoveExe.Tag = "RemoveExeBtn";
+        btnRemoveExe.Enabled = group.Executables.Count > 1;
+        btnRemoveExe.Click += (s, e) =>
+        {
+            if (_isGroupListAnimating) return;
+            var orderedRows = card.Controls.Cast<Control>()
+                .Where(c => c.Tag as string == "GroupExeRow")
+                .OrderBy(c => c.Top)
+                .ToList();
+
+            int idx = orderedRows.IndexOf(exeRow);
+            if (idx < 0) return;
+
+            if (orderedRows.Count <= 1)
+            {
+                group.Executables[0] = "";
+                cmbExe.Text = "";
+                MarkDirty();
+                return;
+            }
+
+            Control? rowAbove = idx > 0 ? orderedRows[idx - 1] : null;
+            if (rowAbove != null) rowAbove.BringToFront();
+            else exeRow.SendToBack();
+
+            int startRowTop = exeRow.Top;
+            int targetRowTop = rowAbove != null ? rowAbove.Top : 34;
+
+            List<(Control ctrl, int startY, int targetY)> shiftingBelow = new();
+            for (int i = idx + 1; i < orderedRows.Count; i++)
+            {
+                Control rBelow = orderedRows[i];
+                shiftingBelow.Add((rBelow, rBelow.Top, rBelow.Top - 31));
+            }
+
+            int targetCardH = 100 + ((orderedRows.Count - 1) * 31);
+            AnimateGroupCardHeightChange(
+                card,
+                targetCardH,
+                exeRow,
+                startRowTop,
+                targetRowTop,
+                shiftingBelow,
+                onFinished: () =>
+                {
+                    if (idx < group.Executables.Count)
+                        group.Executables.RemoveAt(idx);
+                    card.Controls.Remove(exeRow);
+                    exeRow.Dispose();
+                    RebindGroupExeRows(card, group);
+                    MarkDirty();
+                });
+        };
+        exeRow.Controls.Add(btnRemoveExe);
+
+        return exeRow;
+    }
+
+    private Win11CardPanel BuildSingleGroupCard(ProgramGroup group, List<string> exeSuggestions, int hostW)
+    {
+        int btnDelW = 104;
+        int btnDelGroupLeft = hostW - btnDelW - 8;
+        int nameBoxLeft = 106;
+        int nameBoxW = Math.Max(130, btnDelGroupLeft - nameBoxLeft - 8);
+
+        int cardH = 100 + (group.Executables.Count * 31);
+
+        Win11CardPanel card = new Win11CardPanel
+        {
+            Left = 0,
+            Top = 0,
+            Width = hostW,
+            Height = cardH,
+            FillColor = Color.FromArgb(48, 48, 48),
+            BorderColor = Color.FromArgb(66, 66, 66),
+            CornerRadius = 6,
+            Padding = new Padding(0),
+            Tag = group
+        };
+
+        BufferedPanel iconBox = new BufferedPanel
+        {
+            Left = 10,
+            Top = 8,
+            Width = 46,
+            Height = 46,
+            Cursor = Cursors.Hand,
+            BackColor = Color.FromArgb(48, 48, 48)
+        };
+        _toolTip.SetToolTip(iconBox, "Click to choose a group icon (Default presets or Custom icon)");
+        iconBox.Paint += (s, e) =>
+        {
+            try
+            {
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                Rectangle r = new Rectangle(0, 0, iconBox.Width - 1, iconBox.Height - 1);
+                using var path = Win11CardPanel.CreateRoundRect(r, 8);
+                using var bg = new SolidBrush(Color.FromArgb(36, 36, 40));
+                using var pen = new Pen(Color.FromArgb(82, 82, 88), 1f);
+                e.Graphics.FillPath(bg, path);
+                e.Graphics.DrawPath(pen, path);
+
+                Bitmap? grpIco = AppIconCache.GetIconForGroup(group);
+                if (grpIco != null)
+                {
+                    e.Graphics.DrawImage(grpIco, new Rectangle(5, 5, 36, 36));
+                }
+            }
+            catch { }
+        };
+        iconBox.MouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
+            {
+                ShowGroupIconPickerMenu(group, iconBox);
+            }
+        };
+        card.Controls.Add(iconBox);
+
+        Label lblGroupName = new Label
+        {
+            Text = "Group:",
+            Left = 62,
+            Top = 12,
+            Width = 44,
+            Height = 18,
+            Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(190, 190, 190)
+        };
+        card.Controls.Add(lblGroupName);
+
+        TextBox txtGroupName = new TextBox
+        {
+            Text = group.GroupName,
+            Left = nameBoxLeft,
+            Top = 8,
+            Width = nameBoxW,
+            Height = 25,
+            BackColor = Color.FromArgb(38, 38, 38),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold),
+            Tag = "GroupNameTxt"
+        };
+        txtGroupName.TextChanged += (s, e) =>
+        {
+            if (_isInitializing) return;
+            group.GroupName = txtGroupName.Text.Trim();
+            MarkDirty();
+        };
+        card.Controls.Add(txtGroupName);
+
+        ModernButton btnRemoveGroup = CreateModernButton("Delete Group", btnDelGroupLeft, 8, btnDelW, 25, false, isDanger: true);
+        btnRemoveGroup.Tag = "DeleteGroupBtn";
+        btnRemoveGroup.Click += (s, e) =>
+        {
+            if (_isGroupListAnimating) return;
+            AnimateRemoveGroupCard(group);
+        };
+        card.Controls.Add(btnRemoveGroup);
+
+        Label lblAppsHeader = new Label
+        {
+            Text = "Included Applications:",
+            Left = 62,
+            Top = 37,
+            Width = 220,
+            Height = 17,
+            Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(155, 155, 155)
+        };
+        card.Controls.Add(lblAppsHeader);
+
+        for (int i = 0; i < group.Executables.Count; i++)
+        {
+            BufferedPanel exeRow = CreateGroupExeRowControl(card, group, i, exeSuggestions, hostW);
+            card.Controls.Add(exeRow);
+        }
+
+        int innerY = 60 + (group.Executables.Count * 31);
+        ModernButton btnAddExe = CreateModernButton("+ Add App", 10, innerY + 3, 110, 25, false);
+        btnAddExe.Tag = "AddExeBtn";
+        btnAddExe.Click += (s, e) =>
+        {
+            if (_isGroupListAnimating) return;
+
+            var orderedRows = card.Controls.Cast<Control>()
+                .Where(c => c.Tag as string == "GroupExeRow")
+                .OrderBy(c => c.Top)
+                .ToList();
+
+            int newIdx = group.Executables.Count;
+            group.Executables.Add("");
+
+            List<string> currentSuggestions = GetExecutableSuggestions();
+            BufferedPanel newRow = CreateGroupExeRowControl(card, group, newIdx, currentSuggestions, card.Width);
+
+            Control? prevRow = orderedRows.LastOrDefault();
+            int finalRowTop = 60 + (newIdx * 31);
+            int startRowTop = prevRow != null ? prevRow.Top : 34;
+
+            newRow.Top = startRowTop;
+            card.Controls.Add(newRow);
+            if (prevRow != null) prevRow.BringToFront();
+            btnAddExe.BringToFront();
+
+            RebindGroupExeRows(card, group);
+            MarkDirty();
+
+            int targetCardH = 100 + (group.Executables.Count * 31);
+            AnimateGroupCardHeightChange(
+                card,
+                targetCardH,
+                newRow,
+                startRowTop,
+                finalRowTop,
+                new List<(Control ctrl, int startY, int targetY)>());
+        };
+        card.Controls.Add(btnAddExe);
+
+        return card;
     }
 
     private List<string> GetExecutableSuggestions()
@@ -3567,14 +4335,32 @@ public class SettingsForm : Form
 
         colorBox.Click += (s, e) =>
         {
-            using ColorDialog dlg = new ColorDialog { FullOpen = true };
-            try { dlg.Color = colorBox.SwatchColor; } catch { }
+            Color originalColor = colorBox.SwatchColor;
+            string originalHex = ColorTranslator.ToHtml(originalColor);
+
+            using var dlg = new ModernColorPickerDialog(originalColor, _draftSettings, liveCol =>
+            {
+                string liveHex = $"#{liveCol.R:X2}{liveCol.G:X2}{liveCol.B:X2}";
+                colorBox.SwatchColor = liveCol;
+                colorBox.Invalidate();
+                onColorChanged(liveHex);
+                PushLivePreviewIfActive(forceTrigger: true);
+            });
+
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                colorBox.SwatchColor = dlg.Color;
+                colorBox.SwatchColor = dlg.SelectedColor;
                 colorBox.Invalidate();
-                string hex = ColorTranslator.ToHtml(dlg.Color);
-                onColorChanged(hex);
+                onColorChanged(dlg.SelectedHex);
+                MarkDirty();
+                PushLivePreviewIfActive(forceTrigger: true);
+            }
+            else
+            {
+                colorBox.SwatchColor = originalColor;
+                colorBox.Invalidate();
+                onColorChanged(originalHex);
+                PushLivePreviewIfActive(forceTrigger: true);
             }
         };
 
@@ -3735,11 +4521,28 @@ public class SettingsForm : Form
         if (!ValidateAndNormalizePairList(_draftSettings.StandalonePairs, "Standalone Pair")) return;
 
         var defaultActivePair = _draftSettings.CrossfadeCycleList.FirstOrDefault() ?? _draftSettings.StandalonePairs.First();
-        _draftSettings.Source1 = defaultActivePair.Source1;
-        _draftSettings.Source1Color = defaultActivePair.Color1Hex;
-        _draftSettings.Source2 = defaultActivePair.IsSingleMode ? "" : defaultActivePair.Source2;
-        _draftSettings.Source2Color = defaultActivePair.Color2Hex;
-        _draftSettings.ActiveControlMode = defaultActivePair.ControlMode;
+        _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
+        _draftSettings.CarouselOpenSpeed = _sldCarouselOpenSpeed.Value;
+        _draftSettings.CarouselAnimationSpeed = _sldCarouselSpeed.Value;
+        _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
+
+        _draftSettings.CycleNextKey = _kbKeyCycleNext.Binding;
+        _draftSettings.QuickSwapKey = _kbKeyCycleNext.Binding;
+        _draftSettings.CyclePrevKey = _kbKeyCyclePrev.Binding;
+        _draftSettings.RunOnStartup = _chkStartup.Checked;
+        _draftSettings.GlobalMuteMode = _cmbGlobalMuteMode.SelectedItem?.ToString() ?? "Cycle R → L";
+        _draftSettings.CrossfadeKeyUp = _kbKey1.Binding;
+        _draftSettings.CrossfadeKeyDown = _kbKey2.Binding;
+        _draftSettings.CrossfadeKeyMute = _kbKey3.Binding;
+        _draftSettings.KeepOverlayOnWhileSettingsOpen = _chkKeepOverlayAlwaysOn.Checked;
+        _draftSettings.OverlayPosition = _cmbPosition.SelectedItem?.ToString() ?? "Bottom Center";
+        _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration.Text, 2500), 500, 10000);
+        _draftSettings.OverlayOpacity = _sldOverlayOpacity.Value;
+        _draftSettings.StepSize = _sldStepSize.Value;
+        _draftSettings.OverlayWidth = Math.Clamp(ParseInt(_txtWidth.Text, 360), 120, 2000);
+        _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight.Text, 80), 50, 1000);
+        _draftSettings.EnableInterpolation = _chkInterpolation.Checked;
+        _draftSettings.InterpolationSpeed = _sldInterpSpeed.Value;
 
         foreach (var group in _draftSettings.Groups)
         {
@@ -3757,21 +4560,23 @@ public class SettingsForm : Form
 
         int ParseInt(string text, int defaultVal) => int.TryParse(text, out int val) ? val : defaultVal;
 
-        string savedMode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full Carousel";
+        string savedMode = _cmbCarouselMode.SelectedItem?.ToString() ?? "Full";
         _draftSettings.CarouselMode = savedMode;
         _draftSettings.InvertCarouselScroll = _chkInvertCarouselScroll.Checked;
         _draftSettings.CardOrderDirection = _cmbCardOrder.SelectedItem?.ToString() ?? "Ascending";
+        _draftSettings.NeighborPreviewVisibility = _cmbNeighborPreviewMode.SelectedItem?.ToString() ?? "While Switching";
+        _draftSettings.CompactShowNeighborPreviews = _draftSettings.NeighborPreviewVisibility != "Off";
 
-        var savedStyle = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString());
+        var savedStyle = CarouselStyleStateMachine.ParseState(_cmbCarouselStyle.SelectedItem?.ToString(), savedMode);
         string savedStyleName = CarouselStyleStateMachine.ToDisplayName(savedStyle);
         _draftSettings.CarouselMotionStyle = savedStyleName;
-        _draftSettings.CarouselVisibleNeighbors = (savedMode == "Full Carousel") ? 1.5f : 0.0f;
-        if (savedMode == "Full Carousel") _draftSettings.LastFullCarouselStyle = savedStyleName;
-        else if (savedMode == "Compact Carousel") _draftSettings.LastCompactCarouselStyle = savedStyleName;
+        _draftSettings.CarouselVisibleNeighbors = (savedMode == "Full") ? 1.5f : 0.0f;
 
-        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews.Checked;
+        if (savedMode == "Full") _draftSettings.LastFullCarouselStyle = savedStyleName;
+        else if (savedMode == "Compact") _draftSettings.LastCompactCarouselStyle = savedStyleName;
+        else if (savedMode == "Minimal") _draftSettings.LastMinimalCarouselStyle = savedStyleName;
+
         _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
-        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed.Text, 55), 5, 100);
         _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
 
         _draftSettings.CycleNextKey = _kbKeyCycleNext.Binding;
@@ -3785,24 +4590,14 @@ public class SettingsForm : Form
         _draftSettings.KeepOverlayOnWhileSettingsOpen = _chkKeepOverlayAlwaysOn.Checked;
         _draftSettings.OverlayPosition = _cmbPosition.SelectedItem?.ToString() ?? "Bottom Center";
         _draftSettings.PopupDurationMs = Math.Clamp(ParseInt(_txtPopupDuration.Text, 2500), 500, 10000);
-        _draftSettings.OverlayOpacity = Math.Clamp(ParseInt(_txtOverlayOpacity.Text, 100), 10, 100);
-        _draftSettings.StepSize = Math.Clamp(ParseInt(_txtStepSize.Text, 10), 1, 100);
         _draftSettings.OverlayWidth = Math.Clamp(ParseInt(_txtWidth.Text, 360), 120, 2000);
         _draftSettings.OverlayHeight = Math.Clamp(ParseInt(_txtHeight.Text, 80), 50, 1000);
         _draftSettings.EnableInterpolation = _chkInterpolation.Checked;
-        _draftSettings.InterpolationSpeed = Math.Clamp(ParseInt(_txtInterpSpeed.Text, 45), 5, 100);
         _draftSettings.EnableEqualizationBuffer = _chkBuffer.Checked;
         _draftSettings.OverlayIdentityMode = _cmbIdentityMode.SelectedItem?.ToString() ?? "Both";
         _draftSettings.OverlayLevelMode = _cmbLevelMode.SelectedItem?.ToString() ?? "Both";
         _draftSettings.UseSourceBackgroundColors = _chkUseSourceBgColors.Checked;
         _draftSettings.FadeBgColorWithVolume = _chkFadeBgWithVolume.Checked;
-
-        _draftSettings.CarouselMotionStyle = CarouselStyleStateMachine.ToDisplayName(savedStyle);
-        _draftSettings.CarouselVisibleNeighbors = CarouselStyleStateMachine.IsWideCarousel(savedStyle) ? 1.5f : 0.0f;
-        _draftSettings.CompactShowNeighborPreviews = _chkCompactNeighborPreviews.Checked;
-        _draftSettings.EnableCarouselAnimation = _chkEnableAnimations.Checked;
-        _draftSettings.CarouselAnimationSpeed = Math.Clamp(ParseInt(_txtCarouselSpeed.Text, 55), 5, 100);
-        _draftSettings.CarouselBackgroundEnabled = _chkCarouselBg.Checked;
 
         try
         {

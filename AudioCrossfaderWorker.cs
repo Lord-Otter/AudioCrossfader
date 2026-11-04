@@ -492,6 +492,8 @@ public class AudioCrossfaderWorker
             return state;
         }
 
+        DateTime lastActiveInputUtc = DateTime.UtcNow;
+
         while (!token.IsCancellationRequested)
         {
             if (_forceResetAudioFlag)
@@ -737,6 +739,7 @@ public class AudioCrossfaderWorker
 
             if (physicalInputRegistered)
             {
+                lastActiveInputUtc = now;
                 audioUpdatePending = true;
             }
 
@@ -757,7 +760,15 @@ public class AudioCrossfaderWorker
                 ApplyVolumesForPair(sessionCache, _hudSource1, _hudSource2, _hudSource1Color, _hudSource2Color, shouldUpdateAudio, physicalInputRegistered);
             }
 
-            Thread.Sleep(2);
+            // HYBRID TURBO-POLLING:
+            // Stay at 500Hz (2ms) while animating, while the overlay is visible, or within 5 seconds of any knob input.
+            // Drop to 8ms only when completely idle so the first knob click still wakes 500Hz mode on tick 1!
+            bool turboActive = isAnimating ||
+                               audioUpdatePending ||
+                               (now - lastActiveInputUtc).TotalMilliseconds < 5000.0 ||
+                               _overlays.Any(o => !o.IsFadedOut);
+
+            Thread.Sleep(turboActive ? 2 : 8);
         }
 
         ResetAllConfiguredExecutables(sessionCache);

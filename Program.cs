@@ -21,9 +21,18 @@ static class Program
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new TrayApplicationContext());
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (s, e) => { /* Swallow transient GDI+/Win32 UI exceptions safely */ };
+        AppDomain.CurrentDomain.UnhandledException += (s, e) => { };
 
-        _mutex.ReleaseMutex();
+        try
+        {
+            Application.Run(new TrayApplicationContext());
+        }
+        finally
+        {
+            try { _mutex.ReleaseMutex(); } catch { }
+        }
     }
 }
 
