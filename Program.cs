@@ -190,13 +190,11 @@ public class TrayApplicationContext : ApplicationContext
                 {
                     loaded.CycleNextKey = loaded.QuickSwapKey;
                 }
-                var firstPair = loaded.CrossfadeCycleList.FirstOrDefault() ?? loaded.StandalonePairs.FirstOrDefault();
-                if (firstPair != null)
+                loaded.EnsureCollectionsInitialized();
+                var firstCol = loaded.Collections.FirstOrDefault();
+                if (firstCol != null)
                 {
-                    loaded.Source1 = firstPair.Source1;
-                    loaded.Source1Color = firstPair.Color1Hex;
-                    loaded.Source2 = firstPair.Source2;
-                    loaded.Source2Color = firstPair.Color2Hex;
+                    loaded.ApplyCollectionToActiveOverlayFields(firstCol);
                 }
                 loaded.RecordProgramHistory(loaded.Source1);
                 loaded.RecordProgramHistory(loaded.Source2);
@@ -218,9 +216,9 @@ public class TrayApplicationContext : ApplicationContext
         }
     }
 
-    public void TriggerOverlayPreview(AppSettings draftSettings)
+    public void TriggerOverlayPreview(AppSettings draftSettings, bool isColorPickerLive = false, bool visualOnly = false, bool animateTransition = true)
     {
-        _crossfaderWorker?.PreviewOverlay(draftSettings);
+        _crossfaderWorker?.PreviewOverlay(draftSettings, isColorPickerLive, visualOnly, animateTransition);
     }
 
     public void NotifySettingsWindowState(bool isOpen, AppSettings? draftSettings = null)

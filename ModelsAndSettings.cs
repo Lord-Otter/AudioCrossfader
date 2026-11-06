@@ -102,178 +102,22 @@ public static class ControlModeStateMachine
     }
 }
 
-public enum CarouselStyleState
-{
-    // Full Carousel Styles (Open Full Vertical Carousel)
-    FloatingPills3D,
-    FluidMovingDeck,
-    CoverflowArc3D,
-    StackedRolodex,
-    CylinderFacets3D,
-
-    // Compact Carousel Styles (Top & Bottom Peeking Previews + Vertical Transitions)
-    CompactTopBottomMorph,
-    CompactCardFlip,
-    CompactVerticalClockFlip,
-    CompactVerticalSwoosh,
-    CompactVerticalLaserWipe,
-    CompactVerticalSquashStretch,
-    CompactVerticalInstantCut,
-
-    // Minimal Carousel Styles (Left & Right Side Previews + In-Place Transitions)
-    MinimalSidePreviewMorph,
-    MinimalCardFlip,
-    MinimalDirectionalSwoosh,
-    MinimalLaserWipe,
-    MinimalSquashAndStretch,
-    MinimalInstantCut
-}
-
 public static class CarouselStyleStateMachine
 {
-    public static readonly object[] FullDisplayNames = new object[]
-    {
-        "3D Floating Pills",
-        "Fluid Moving Deck",
-        "3D Perspective Arc",
-        "Stacked Rolodex",
-        "3D Faceted Cylinder"
-    };
+    public static object[] FullDisplayNames => CarouselStyleRegistry.GetDisplayNames(CarouselCategory.Full);
+    public static object[] CompactDisplayNames => CarouselStyleRegistry.GetDisplayNames(CarouselCategory.Compact);
+    public static object[] MinimalDisplayNames => CarouselStyleRegistry.GetDisplayNames(CarouselCategory.Minimal);
 
-    public static readonly object[] CompactDisplayNames = new object[]
-    {
-        "Top/Bottom Preview Morph",
-        "Card Flip",
-        "Split-Flap Clock Flip",
-        "Vertical Swoosh",
-        "Vertical Laser Wipe",
-        "Vertical Squash && Stretch",
-        "Instant Cut"
-    };
+    public static ICarouselStyle? ParseState(string? rawStyle, string? modeHint = null) =>
+        CarouselStyleRegistry.Resolve(rawStyle, modeHint);
 
-    public static readonly object[] MinimalDisplayNames = new object[]
-    {
-        "Side Preview Morph",
-        "Card Flip",
-        "Directional Swoosh",
-        "Laser Wipe Reveal",
-        "Squash && Stretch Push",
-        "Instant Cut"
-    };
+    public static string ToDisplayName(ICarouselStyle? style) =>
+        style?.DisplayName ?? (FullDisplayNames.FirstOrDefault()?.ToString() ?? "3D Floating Pills");
 
-    public static CarouselStyleState ParseState(string? rawStyle, string? modeHint = null)
-    {
-        string mode = modeHint?.Trim() ?? "";
-        bool preferCompact = mode.StartsWith("Compact", StringComparison.OrdinalIgnoreCase);
-        bool preferMinimal = mode.StartsWith("Minimal", StringComparison.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(rawStyle))
-        {
-            if (preferCompact) return CarouselStyleState.CompactTopBottomMorph;
-            if (preferMinimal) return CarouselStyleState.MinimalSidePreviewMorph;
-            return CarouselStyleState.FloatingPills3D;
-        }
-
-        string s = rawStyle.Trim();
-
-        // Full styles
-        if (s.Contains("Floating Pills", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.FloatingPills3D;
-        if (s.Contains("Fluid Moving Deck", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.FluidMovingDeck;
-        if (s.Contains("Perspective Arc", StringComparison.OrdinalIgnoreCase) || s.Contains("Coverflow", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CoverflowArc3D;
-        if (s.Contains("Stacked Rolodex", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.StackedRolodex;
-        if (s.Contains("Faceted Cylinder", StringComparison.OrdinalIgnoreCase) || s.Contains("Cylinder", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CylinderFacets3D;
-
-        // Compact-specific vertical styles
-        if (s.Contains("Top/Bottom", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CompactTopBottomMorph;
-        if (s.Contains("Split-Flap", StringComparison.OrdinalIgnoreCase) || s.Contains("Clock Flip", StringComparison.OrdinalIgnoreCase))
-            return preferMinimal ? CarouselStyleState.MinimalCardFlip : CarouselStyleState.CompactVerticalClockFlip;
-        if (s.Contains("Vertical Swoosh", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CompactVerticalSwoosh;
-        if (s.Contains("Vertical Laser", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CompactVerticalLaserWipe;
-        if (s.Contains("Vertical Squash", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.CompactVerticalSquashStretch;
-
-        // Shared names between Compact and Minimal ("Card Flip", "Instant Cut")
-        if (s.Contains("Card Flip", StringComparison.OrdinalIgnoreCase))
-            return preferCompact ? CarouselStyleState.CompactCardFlip : CarouselStyleState.MinimalCardFlip;
-        if (s.Contains("Instant Cut", StringComparison.OrdinalIgnoreCase))
-            return preferCompact ? CarouselStyleState.CompactVerticalInstantCut : CarouselStyleState.MinimalInstantCut;
-
-        // Minimal styles
-        if (s.Contains("Side Preview Morph", StringComparison.OrdinalIgnoreCase) || s.Contains("Preview Morph", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.MinimalSidePreviewMorph;
-        if (s.Contains("Directional Swoosh", StringComparison.OrdinalIgnoreCase) || s.Contains("Swoosh", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.MinimalDirectionalSwoosh;
-        if (s.Contains("Laser Wipe", StringComparison.OrdinalIgnoreCase) || s.Contains("Line Wipe", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.MinimalLaserWipe;
-        if (s.Contains("Squash", StringComparison.OrdinalIgnoreCase) || s.Contains("Stretch", StringComparison.OrdinalIgnoreCase))
-            return CarouselStyleState.MinimalSquashAndStretch;
-
-        return preferCompact
-            ? CarouselStyleState.CompactTopBottomMorph
-            : (preferMinimal ? CarouselStyleState.MinimalSidePreviewMorph : CarouselStyleState.FloatingPills3D);
-    }
-
-    public static string ToDisplayName(CarouselStyleState state) => state switch
-    {
-        CarouselStyleState.FluidMovingDeck => "Fluid Moving Deck",
-        CarouselStyleState.CoverflowArc3D => "3D Perspective Arc",
-        CarouselStyleState.StackedRolodex => "Stacked Rolodex",
-        CarouselStyleState.CylinderFacets3D => "3D Faceted Cylinder",
-
-        CarouselStyleState.CompactTopBottomMorph => "Top/Bottom Preview Morph",
-        CarouselStyleState.CompactCardFlip => "Card Flip",
-        CarouselStyleState.CompactVerticalClockFlip => "Split-Flap Clock Flip",
-        CarouselStyleState.CompactVerticalSwoosh => "Vertical Swoosh",
-        CarouselStyleState.CompactVerticalLaserWipe => "Vertical Laser Wipe",
-        CarouselStyleState.CompactVerticalSquashStretch => "Vertical Squash && Stretch",
-        CarouselStyleState.CompactVerticalInstantCut => "Instant Cut",
-
-        CarouselStyleState.MinimalSidePreviewMorph => "Side Preview Morph",
-        CarouselStyleState.MinimalCardFlip => "Card Flip",
-        CarouselStyleState.MinimalDirectionalSwoosh => "Directional Swoosh",
-        CarouselStyleState.MinimalLaserWipe => "Laser Wipe Reveal",
-        CarouselStyleState.MinimalSquashAndStretch => "Squash && Stretch Push",
-        CarouselStyleState.MinimalInstantCut => "Instant Cut",
-
-        _ => "3D Floating Pills"
-    };
-
-    public static bool IsWideCarousel(CarouselStyleState state) => state switch
-    {
-        CarouselStyleState.FloatingPills3D => true,
-        CarouselStyleState.FluidMovingDeck => true,
-        CarouselStyleState.CoverflowArc3D => true,
-        CarouselStyleState.StackedRolodex => true,
-        CarouselStyleState.CylinderFacets3D => true,
-        _ => false
-    };
-
-    public static bool IsCompactCarousel(CarouselStyleState state) => state switch
-    {
-        CarouselStyleState.CompactTopBottomMorph => true,
-        CarouselStyleState.CompactCardFlip => true,
-        CarouselStyleState.CompactVerticalClockFlip => true,
-        CarouselStyleState.CompactVerticalSwoosh => true,
-        CarouselStyleState.CompactVerticalLaserWipe => true,
-        CarouselStyleState.CompactVerticalSquashStretch => true,
-        CarouselStyleState.CompactVerticalInstantCut => true,
-        _ => false
-    };
-
-    public static bool IsMinimalCarousel(CarouselStyleState state) =>
-        !IsWideCarousel(state) && !IsCompactCarousel(state);
-
-    public static bool IsInstantCut(CarouselStyleState state) =>
-        state == CarouselStyleState.CompactVerticalInstantCut ||
-        state == CarouselStyleState.MinimalInstantCut;
+    public static bool IsWideCarousel(ICarouselStyle? style) => style?.Category == CarouselCategory.Full;
+    public static bool IsCompactCarousel(ICarouselStyle? style) => style?.Category == CarouselCategory.Compact;
+    public static bool IsMinimalCarousel(ICarouselStyle? style) => style?.Category == CarouselCategory.Minimal;
+    public static bool IsInstantCut(ICarouselStyle? style) => style?.IsInstantCut ?? true;
 }
 
 public readonly struct BadgeInfo
@@ -318,6 +162,64 @@ public class MonitorOverlayConfig
             DeviceName = this.DeviceName,
             Enabled = this.Enabled,
             Position = this.Position
+        };
+    }
+}
+
+public class PairCollection
+{
+    public string Name { get; set; } = "Collection 1";
+    public List<CrossfadeCyclePair> Pairs { get; set; } = new List<CrossfadeCyclePair>();
+
+    // Per-Collection Hotkeys
+    public int KeyUp { get; set; } = 0;
+    public int KeyDown { get; set; } = 0;
+    public int KeyMute { get; set; } = 0;
+    public string MuteMode { get; set; } = "Cycle R → L";
+    public int CycleNextKey { get; set; } = 0;
+    public int CyclePrevKey { get; set; } = 0;
+
+    // Per-Collection Carousel Appearance & Behavior
+    public string CarouselMode { get; set; } = "Full"; // "None", "Full", "Compact", "Minimal"
+    public string CarouselMotionStyle { get; set; } = "3D Floating Pills";
+    public string LastFullCarouselStyle { get; set; } = "3D Floating Pills";
+    public string LastCompactCarouselStyle { get; set; } = "Top/Bottom Preview Morph";
+    public string LastMinimalCarouselStyle { get; set; } = "Side Preview Morph";
+
+    public bool AlwaysShowPreviews { get; set; } = false;
+    public bool EnableCarouselAnimation { get; set; } = true;
+    public bool CarouselBackgroundEnabled { get; set; } = true;
+    public string CarouselBackdropColor { get; set; } = "#0F0F12";
+    public int CarouselOpenSpeed { get; set; } = 55;
+    public int CarouselAnimationSpeed { get; set; } = 55;
+    public bool InvertCarouselScroll { get; set; } = false;
+    public string CardOrderDirection { get; set; } = "Ascending";
+
+    public PairCollection Clone()
+    {
+        return new PairCollection
+        {
+            Name = this.Name,
+            Pairs = this.Pairs.Select(p => p.Clone()).ToList(),
+            KeyUp = this.KeyUp,
+            KeyDown = this.KeyDown,
+            KeyMute = this.KeyMute,
+            MuteMode = this.MuteMode,
+            CycleNextKey = this.CycleNextKey,
+            CyclePrevKey = this.CyclePrevKey,
+            CarouselMode = this.CarouselMode,
+            CarouselMotionStyle = this.CarouselMotionStyle,
+            LastFullCarouselStyle = this.LastFullCarouselStyle,
+            LastCompactCarouselStyle = this.LastCompactCarouselStyle,
+            LastMinimalCarouselStyle = this.LastMinimalCarouselStyle,
+            AlwaysShowPreviews = this.AlwaysShowPreviews,
+            EnableCarouselAnimation = this.EnableCarouselAnimation,
+            CarouselBackgroundEnabled = this.CarouselBackgroundEnabled,
+            CarouselBackdropColor = this.CarouselBackdropColor,
+            CarouselOpenSpeed = this.CarouselOpenSpeed,
+            CarouselAnimationSpeed = this.CarouselAnimationSpeed,
+            InvertCarouselScroll = this.InvertCarouselScroll,
+            CardOrderDirection = this.CardOrderDirection
         };
     }
 }
@@ -499,6 +401,112 @@ public class AppSettings
     public List<string> PinnedCustomColors { get; set; } = new List<string>();
     public List<string> RecentCustomColors { get; set; } = new List<string>();
 
+    public List<PairCollection> Collections { get; set; } = new List<PairCollection>();
+    public int ActiveCollectionIndex { get; set; } = 0;
+    public string CarouselBackdropColor { get; set; } = "#0F0F12";
+
+    public void EnsureCollectionsInitialized()
+    {
+        if (Collections != null && Collections.Count > 0)
+            return;
+
+        Collections = new List<PairCollection>();
+
+        if (CrossfadeCycleList != null && CrossfadeCycleList.Count > 0)
+        {
+            string normMode = CarouselMode.StartsWith("Compact", StringComparison.OrdinalIgnoreCase) ? "Compact"
+                : (CarouselMode.StartsWith("Minimal", StringComparison.OrdinalIgnoreCase) ? "Minimal"
+                : (CarouselMode.Equals("None", StringComparison.OrdinalIgnoreCase) ? "None" : "Full"));
+
+            Collections.Add(new PairCollection
+            {
+                Name = "Main Collection",
+                Pairs = CrossfadeCycleList.Select(p => p.Clone()).ToList(),
+                KeyUp = CrossfadeKeyUp,
+                KeyDown = CrossfadeKeyDown,
+                KeyMute = CrossfadeKeyMute,
+                MuteMode = GlobalMuteMode,
+                CycleNextKey = GetEffectiveCycleNextKey(),
+                CyclePrevKey = CyclePrevKey,
+                CarouselMode = normMode,
+                CarouselMotionStyle = CarouselMotionStyle,
+                LastFullCarouselStyle = LastFullCarouselStyle,
+                LastCompactCarouselStyle = LastCompactCarouselStyle,
+                LastMinimalCarouselStyle = LastMinimalCarouselStyle,
+                AlwaysShowPreviews = string.Equals(NeighborPreviewVisibility, "Always", StringComparison.OrdinalIgnoreCase),
+                EnableCarouselAnimation = EnableCarouselAnimation,
+                CarouselBackgroundEnabled = CarouselBackgroundEnabled,
+                CarouselBackdropColor = CarouselBackdropColor,
+                CarouselOpenSpeed = CarouselOpenSpeed,
+                CarouselAnimationSpeed = CarouselAnimationSpeed,
+                InvertCarouselScroll = InvertCarouselScroll,
+                CardOrderDirection = CardOrderDirection
+            });
+        }
+
+        if (StandalonePairs != null && StandalonePairs.Count > 0)
+        {
+            for (int i = 0; i < StandalonePairs.Count; i++)
+            {
+                var sp = StandalonePairs[i].Clone();
+                Collections.Add(new PairCollection
+                {
+                    Name = $"Standalone {i + 1}",
+                    Pairs = new List<CrossfadeCyclePair> { sp },
+                    KeyUp = sp.KeyUp,
+                    KeyDown = sp.KeyDown,
+                    KeyMute = sp.KeyMute,
+                    MuteMode = string.IsNullOrWhiteSpace(sp.MuteMode) || sp.MuteMode == "Use Global" ? GlobalMuteMode : sp.MuteMode,
+                    CarouselMode = "None"
+                });
+            }
+        }
+
+        if (Collections.Count == 0)
+        {
+            Collections.Add(new PairCollection
+            {
+                Name = "Collection 1",
+                Pairs = new List<CrossfadeCyclePair>
+                {
+                    new CrossfadeCyclePair { Source1 = "chrome.exe", Color1Hex = "#1B3B5A", Source2 = "firefox.exe", Color2Hex = "#4A2040" }
+                },
+                KeyUp = CrossfadeKeyUp,
+                KeyDown = CrossfadeKeyDown,
+                KeyMute = CrossfadeKeyMute
+            });
+        }
+    }
+
+    public void ApplyCollectionToActiveOverlayFields(PairCollection col, CrossfadeCyclePair? activePair = null)
+    {
+        var pair = activePair ?? col.Pairs.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2))) ?? col.Pairs.FirstOrDefault();
+        if (pair != null)
+        {
+            Source1 = NormalizeExeName(pair.Source1);
+            Source1Color = pair.Color1Hex;
+            Source2 = pair.IsSingleMode ? "" : NormalizeExeName(pair.Source2);
+            Source2Color = pair.Color2Hex;
+            ActiveControlMode = pair.ControlMode;
+        }
+
+        CrossfadeCycleList = col.Pairs.Select(p => p.Clone()).ToList();
+        CarouselMode = col.CarouselMode;
+        CarouselMotionStyle = col.CarouselMotionStyle;
+        LastFullCarouselStyle = col.LastFullCarouselStyle;
+        LastCompactCarouselStyle = col.LastCompactCarouselStyle;
+        LastMinimalCarouselStyle = col.LastMinimalCarouselStyle;
+        NeighborPreviewVisibility = col.AlwaysShowPreviews ? "Always" : "While Switching";
+        CompactShowNeighborPreviews = true;
+        EnableCarouselAnimation = col.EnableCarouselAnimation;
+        CarouselBackgroundEnabled = col.CarouselBackgroundEnabled;
+        CarouselBackdropColor = col.CarouselBackdropColor;
+        CarouselOpenSpeed = col.CarouselOpenSpeed;
+        CarouselAnimationSpeed = col.CarouselAnimationSpeed;
+        InvertCarouselScroll = col.InvertCarouselScroll;
+        CardOrderDirection = col.CardOrderDirection;
+    }
+
     public void RecordCustomColorHistory(string hex)
     {
         if (string.IsNullOrWhiteSpace(hex)) return;
@@ -559,6 +567,8 @@ public class AppSettings
 
     public IEnumerable<CrossfadeCyclePair> GetAllConfiguredPairs()
     {
+        if (Collections != null && Collections.Count > 0)
+            return Collections.SelectMany(c => c.Pairs);
         return CrossfadeCycleList.Concat(StandalonePairs);
     }
 
@@ -618,7 +628,8 @@ public class AppSettings
             OverlayLevelMode = this.OverlayLevelMode,
             FollowActiveMonitor = this.FollowActiveMonitor,
             MonitorConfigs = this.MonitorConfigs.Select(m => m.Clone()).ToList(),
-            ActiveControlMode = this.ActiveControlMode
+            ActiveControlMode = this.ActiveControlMode,
+            Collections = this.Collections.Select(c => c.Clone()).ToList(), ActiveCollectionIndex = this.ActiveCollectionIndex, CarouselBackdropColor = this.CarouselBackdropColor,
         };
     }
 

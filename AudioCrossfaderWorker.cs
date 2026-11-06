@@ -46,18 +46,19 @@ public class AudioCrossfaderWorker
         }
     }
 
-    private sealed class PairKeyTrackers
+    private sealed class CollectionKeyTrackers
     {
         public KeyBindingState UpTracker;
         public KeyBindingState DownTracker;
         public KeyBindingState MuteTracker;
+        public KeyBindingState NextTracker;
+        public KeyBindingState PrevTracker;
     }
 
     private sealed class PairRuntimeState
     {
         public float TargetPosition = 0.5f;
         public float VisualPosition = 0.5f;
-        // 0 = Unmuted, 1 = Source2 (Right) Muted, 2 = Source1 (Left) Muted, 3 = Both Muted
         public int MuteState = 0;
         public int DetentClicks = 0;
         public int DetentDirection = 0;
@@ -68,9 +69,8 @@ public class AudioCrossfaderWorker
 
     private readonly Dictionary<string, PairRuntimeState> _pairStates = new(StringComparer.OrdinalIgnoreCase);
     private int _cfCycleIndex = -1;
-
-    // Tracks which pair is currently shown on the HUD overlay (can temporarily be a Standalone pair)
-    // Tracks which pair is currently shown on the HUD overlay (can temporarily be a Standalone pair)
+    private int _activeCollectionIndex = 0;
+    private readonly List<int> _collectionPairIndices = new();
     private string _hudSource1 = "";
     private string _hudSource1Color = "#1B3B5A";
     private string _hudSource2 = "";
@@ -85,8 +85,12 @@ public class AudioCrossfaderWorker
     private readonly object _stateLock = new();
     private volatile bool _forceResetAudioFlag = false;
     private volatile bool _settingsWindowOpen = false;
+    private volatile bool _colorPickerOpen = false;
+    private volatile bool _previewVisualOnly = false;
+    private volatile bool _previewAnimateTransition = true;
     private volatile bool _previewRequestedFlag = false;
     private AppSettings? _pendingPreviewSettings = null;
+    private AppSettings? _lastAppliedOverlayMonitorSettings = null;
 
     public AudioCrossfaderWorker(AppSettings settings, Action<AppSettings>? onRuntimeSettingsMutated = null)
     {
@@ -175,36 +179,100 @@ public class AudioCrossfaderWorker
 
     private void SyncCycleIndices()
     {
-        string normS1 = NormalizeSourceIdentifier(_settings.Source1);
-        string normS2 = NormalizeSourceIdentifier(_settings.Source2);
+        _settings.EnsureCollectionsInitialized();
+        _activeCollectionIndex = Math.Clamp(_settings.ActiveCollectionIndex, 0, _settings.Collections.Count - 1);
 
-        _cfCycleIndex = _settings.CrossfadeCycleList.FindIndex(c =>
-            !string.IsNullOrWhiteSpace(c.Source1) && (c.IsSingleMode || !string.IsNullOrWhiteSpace(c.Source2)) &&
-            NormalizeSourceIdentifier(c.Source1).Equals(normS1, StringComparison.OrdinalIgnoreCase) &&
-            (c.IsSingleMode || NormalizeSourceIdentifier(c.Source2).Equals(normS2, StringComparison.OrdinalIgnoreCase)));
+        while (_collectionPairIndices.Count < _settings.Collections.Count)
+            _collectionPairIndices.Add(0);
 
-        if (_cfCycleIndex < 0 && _settings.CrossfadeCycleList.Count > 0)
+        for (int c = 0; c < _settings.Collections.Count; c++)
         {
-            var firstValid = _settings.CrossfadeCycleList.FindIndex(c =>
-                !string.IsNullOrWhiteSpace(c.Source1) && (c.IsSingleMode || !string.IsNullOrWhiteSpace(c.Source2)));
-            if (firstValid >= 0)
+            var col = _settings.Collections[c];
+            int idx = Math.Clamp(_collectionPairIndices[c], 0, Math.Max(0, col.Pairs.Count - 1));
+            _collectionPairIndices[c] = idx;
+        }
+
+        ActivateCollectionOnHud(_activeCollectionIndex, _collectionPairIndices[_activeCollectionIndex], pushStyleToOverlays: false);
+    }
+
+    private void ActivateCollectionOnHud(int colIndex, int pairIndex, bool pushStyleToOverlays)
+    {
+        if (_settings.Collections.Count == 0) return;
+        colIndex = Math.Clamp(colIndex, 0, _settings.Collections.Count - 1);
+        var col = _settings.Collections[colIndex];
+
+        var validPairs = col.Pairs
+            .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)))
+            .ToList();
+        if (validPairs.Count == 0) return;
+
+        pairIndex = ((pairIndex % validPairs.Count) + validPairs.Count) % validPairs.Count;
+        var activePair = validPairs[pairIndex];
+
+        bool collectionChanged = (_activeCollectionIndex != colIndex);
+        _activeCollectionIndex = colIndex;
+        _settings.ActiveCollectionIndex = colIndex;
+        _collectionPairIndices[colIndex] = pairIndex;
+
+        _settings.ApplyCollectionToActiveOverlayFields(col, activePair);
+        SnapHudToCarouselPair();
+
+        if (pushStyleToOverlays && collectionChanged)
+        {
+            bool pinned = _settingsWindowOpen && _settings.KeepOverlayOnWhileSettingsOpen;
+            foreach (var ov in _overlays.ToList())
             {
-                _cfCycleIndex = firstValid;
-                var p = _settings.CrossfadeCycleList[firstValid];
-                _settings.Source1 = NormalizeSourceIdentifier(p.Source1);
-                _settings.Source1Color = p.Color1Hex;
-                _settings.Source2 = p.IsSingleMode ? "" : NormalizeSourceIdentifier(p.Source2);
-                _settings.Source2Color = p.Color2Hex;
-                _settings.ActiveControlMode = p.ControlMode;
+                ov.ApplyLivePreviewSettings(_settings, pinned, forcePopup: false, animateTransition: false);
             }
         }
-        else if (_cfCycleIndex >= 0)
+    }
+
+    private (List<CycleDisplayItem> items, int activeIndex) PerformCollectionCycleStep(AudioSessionCache sessionCache, int colIndex, int direction)
+    {
+        List<CycleDisplayItem> displayItems = new List<CycleDisplayItem>();
+        int newActiveIdx = 0;
+
+        lock (_stateLock)
         {
-            var p = _settings.CrossfadeCycleList[_cfCycleIndex];
-            _settings.Source1Color = p.Color1Hex;
-            _settings.Source2Color = p.Color2Hex;
-            _settings.ActiveControlMode = p.ControlMode;
+            var col = _settings.Collections[colIndex];
+            var validPairs = col.Pairs
+                .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)))
+                .ToList();
+
+            if (validPairs.Count > 0)
+            {
+                foreach (var cp in validPairs)
+                {
+                    foreach (var exe in _settings.ResolveExecutables(cp.Source1))
+                        sessionCache.SetVolumeForProcessKey(AppSettings.NormalizeProcessKey(exe), 1.0f);
+                    if (!cp.IsSingleMode)
+                    {
+                        foreach (var exe in _settings.ResolveExecutables(cp.Source2))
+                            sessionCache.SetVolumeForProcessKey(AppSettings.NormalizeProcessKey(exe), 1.0f);
+                    }
+                }
+
+                int currentIdx = (_collectionPairIndices[colIndex] >= 0 && _collectionPairIndices[colIndex] < validPairs.Count)
+                    ? _collectionPairIndices[colIndex]
+                    : 0;
+                newActiveIdx = ((currentIdx + direction) % validPairs.Count + validPairs.Count) % validPairs.Count;
+
+                ActivateCollectionOnHud(colIndex, newActiveIdx, pushStyleToOverlays: true);
+
+                foreach (var p in validPairs)
+                {
+                    string s1 = NormalizeSourceIdentifier(p.Source1);
+                    string s2 = p.IsSingleMode ? "" : NormalizeSourceIdentifier(p.Source2);
+                    displayItems.Add(new CycleDisplayItem(
+                        GetResolvedLabel(s1), s1, p.Color1Hex,
+                        p.IsSingleMode ? "" : GetResolvedLabel(s2), s2, p.Color2Hex,
+                        p.IsSingleMode));
+                }
+
+                _onRuntimeSettingsMutated?.Invoke(_settings.Clone());
+            }
         }
+        return (displayItems, newActiveIdx);
     }
 
     private void RebuildOverlayForms(string label1, string label2, AppSettings cfg, bool openCarouselOnInit = false)
@@ -316,6 +384,7 @@ public class AudioCrossfaderWorker
     public void SetSettingsWindowOpen(bool isOpen, AppSettings? liveDraft = null)
     {
         _settingsWindowOpen = isOpen;
+        if (!isOpen) _colorPickerOpen = false;
         if (liveDraft != null)
         {
             lock (_stateLock)
@@ -323,16 +392,44 @@ public class AudioCrossfaderWorker
                 _pendingPreviewSettings = liveDraft.Clone();
             }
         }
+        _previewVisualOnly = false;
+        _previewAnimateTransition = true;
         _previewRequestedFlag = true;
     }
 
-    public void PreviewOverlay(AppSettings draftSettings)
+    public void PreviewOverlay(AppSettings draftSettings, bool isColorPickerLive = false, bool visualOnly = false, bool animateTransition = true)
     {
+        _colorPickerOpen = isColorPickerOpenOrLive(isColorPickerLive);
         lock (_stateLock)
         {
             _pendingPreviewSettings = draftSettings.Clone();
         }
+        _previewVisualOnly = visualOnly;
+        _previewAnimateTransition = animateTransition;
         _previewRequestedFlag = true;
+    }
+
+    private static bool isColorPickerOpenOrLive(bool isLive) => isLive;
+
+    private static bool MonitorLayoutMatches(AppSettings? a, AppSettings b)
+    {
+        if (a == null) return false;
+        if (a.FollowActiveMonitor != b.FollowActiveMonitor) return false;
+        if (a.OverlayPosition != b.OverlayPosition) return false;
+        if (a.MonitorConfigs.Count != b.MonitorConfigs.Count) return false;
+
+        for (int i = 0; i < a.MonitorConfigs.Count; i++)
+        {
+            var ma = a.MonitorConfigs[i];
+            var mb = b.MonitorConfigs[i];
+            if (!ma.DeviceName.Equals(mb.DeviceName, StringComparison.OrdinalIgnoreCase) ||
+                ma.Enabled != mb.Enabled ||
+                !ma.Position.Equals(mb.Position, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void ResetVolumesToFullAndCenter()
@@ -455,6 +552,7 @@ public class AudioCrossfaderWorker
         AppSettings initialOverlaySettings = _settings.Clone();
         string initLabel1 = GetResolvedLabel(initialOverlaySettings.Source1);
         string initLabel2 = _hudIsSingleSource ? "" : GetResolvedLabel(initialOverlaySettings.Source2);
+        _lastAppliedOverlayMonitorSettings = initialOverlaySettings.Clone();
 
         Thread uiThread = new Thread(() =>
         {
@@ -472,13 +570,6 @@ public class AudioCrossfaderWorker
         DateTime lastVisualPushTime = DateTime.MinValue;
         bool audioUpdatePending = false;
 
-        KeyBindingState globalUpTracker = default;
-        KeyBindingState globalDownTracker = default;
-        KeyBindingState globalMuteTracker = default;
-        KeyBindingState nextTracker = default;
-        KeyBindingState prevTracker = default;
-
-        List<PairKeyTrackers> customPairTrackers = new();
         Dictionary<int, short> keySnapshot = new Dictionary<int, short>(16);
 
         short SampleKeyOnce(int vk)
@@ -494,6 +585,8 @@ public class AudioCrossfaderWorker
 
         DateTime lastActiveInputUtc = DateTime.UtcNow;
 
+        List<CollectionKeyTrackers> collectionTrackers = new();
+
         while (!token.IsCancellationRequested)
         {
             if (_forceResetAudioFlag)
@@ -507,25 +600,33 @@ public class AudioCrossfaderWorker
             if (_previewRequestedFlag)
             {
                 _previewRequestedFlag = false;
+                bool visualOnly = _previewVisualOnly;
+                bool animTrans = _previewAnimateTransition;
+
                 AppSettings? previewCfg = null;
                 lock (_stateLock)
                 {
                     previewCfg = _pendingPreviewSettings?.Clone();
                 }
 
-                var cfgToShow = previewCfg ?? _settings;
-                var firstCarousel = cfgToShow.CrossfadeCycleList.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)));
-                if (firstCarousel != null)
+                var cfgToShow = previewCfg ?? _settings.Clone();
+
+                if (!visualOnly)
                 {
-                    cfgToShow.Source1 = NormalizeSourceIdentifier(firstCarousel.Source1);
-                    cfgToShow.Source1Color = firstCarousel.Color1Hex;
-                    cfgToShow.Source2 = firstCarousel.IsSingleMode ? "" : NormalizeSourceIdentifier(firstCarousel.Source2);
-                    cfgToShow.Source2Color = firstCarousel.Color2Hex;
-                    cfgToShow.ActiveControlMode = firstCarousel.ControlMode;
+                    var firstCarousel = cfgToShow.CrossfadeCycleList.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)));
+                    if (firstCarousel != null)
+                    {
+                        cfgToShow.Source1 = NormalizeSourceIdentifier(firstCarousel.Source1);
+                        cfgToShow.Source1Color = firstCarousel.Color1Hex;
+                        cfgToShow.Source2 = firstCarousel.IsSingleMode ? "" : NormalizeSourceIdentifier(firstCarousel.Source2);
+                        cfgToShow.Source2Color = firstCarousel.Color2Hex;
+                        cfgToShow.ActiveControlMode = firstCarousel.ControlMode;
+                    }
                 }
 
-                if (previewCfg != null)
+                if (_overlays.Count == 0 || !MonitorLayoutMatches(_lastAppliedOverlayMonitorSettings, cfgToShow))
                 {
+                    _lastAppliedOverlayMonitorSettings = cfgToShow.Clone();
                     string l1 = GetResolvedLabel(cfgToShow.Source1);
                     string l2 = GetResolvedLabel(cfgToShow.Source2);
                     foreach (var ov in _overlays.ToList())
@@ -538,22 +639,25 @@ public class AudioCrossfaderWorker
                     }
                 }
 
-                bool pinned = _settingsWindowOpen && cfgToShow.KeepOverlayOnWhileSettingsOpen;
+                bool pinned = (_settingsWindowOpen && cfgToShow.KeepOverlayOnWhileSettingsOpen) || _colorPickerOpen;
                 foreach (var ov in _overlays.ToList())
                 {
-                    ov.ApplyLivePreviewSettings(cfgToShow, pinned, forcePopup: true);
+                    ov.ApplyLivePreviewSettings(cfgToShow, pinned, forcePopup: true, animateTransition: animTrans);
                 }
 
-                lock (_stateLock)
+                if (!visualOnly)
                 {
-                    _hudSource1 = cfgToShow.Source1;
-                    _hudSource1Color = cfgToShow.Source1Color;
-                    _hudSource2 = cfgToShow.Source2;
-                    _hudSource2Color = cfgToShow.Source2Color;
-                    _hudIsStandalone = false;
-                    _hudModeState = ControlModeStateMachine.ParseState(cfgToShow.ActiveControlMode);
+                    lock (_stateLock)
+                    {
+                        _hudSource1 = cfgToShow.Source1;
+                        _hudSource1Color = cfgToShow.Source1Color;
+                        _hudSource2 = cfgToShow.Source2;
+                        _hudSource2Color = cfgToShow.Source2Color;
+                        _hudIsStandalone = false;
+                        _hudModeState = ControlModeStateMachine.ParseState(cfgToShow.ActiveControlMode);
+                    }
+                    ApplyVolumesForPair(sessionCache, _hudSource1, _hudSource2, _hudSource1Color, _hudSource2Color, false, true);
                 }
-                ApplyVolumesForPair(sessionCache, _hudSource1, _hudSource2, _hudSource1Color, _hudSource2Color, false, true);
             }
 
             bool physicalInputRegistered = false;
@@ -564,150 +668,93 @@ public class AudioCrossfaderWorker
             bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
             bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
 
-            int nextBinding = _settings.GetEffectiveCycleNextKey();
-            int nextVk = KeybindHelper.GetPrimaryVk(nextBinding);
-            bool nextModsOk = ModifiersMatch(nextBinding, ctrlDown, altDown, shiftDown);
-            if (nextTracker.PollSteps(SampleKeyOnce(nextVk), nextModsOk, allowHoldRepeat: false) > 0)
-            {
-                var (cycleItems, activeIdx) = PerformCycleStep(sessionCache, +1);
-                foreach (var ov in _overlays.ToList())
-                {
-                    ov.TriggerCycleWheel(cycleItems, activeIdx, +1);
-                }
-                physicalInputRegistered = true;
-                immediateAudioUpdate = true;
-            }
-
-            int prevBinding = _settings.CyclePrevKey;
-            int prevVk = KeybindHelper.GetPrimaryVk(prevBinding);
-            bool prevModsOk = ModifiersMatch(prevBinding, ctrlDown, altDown, shiftDown);
-            if (prevTracker.PollSteps(SampleKeyOnce(prevVk), prevModsOk, allowHoldRepeat: false) > 0)
-            {
-                var (cycleItems, activeIdx) = PerformCycleStep(sessionCache, -1);
-                foreach (var ov in _overlays.ToList())
-                {
-                    ov.TriggerCycleWheel(cycleItems, activeIdx, -1);
-                }
-                physicalInputRegistered = true;
-                immediateAudioUpdate = true;
-            }
-
             float stepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / 2.0f) / 100.0f;
             float lerpFactor = Math.Clamp(_settings.InterpolationSpeed, 5, 100) / 100.0f;
 
             var now = DateTime.UtcNow;
             bool frameTickReady = (now - lastVisualPushTime).TotalMilliseconds >= 15;
 
-            // 1. Poll Global Hotkeys -> ALWAYS target the active Carousel Pair and snap HUD back to it
-            int activeKeyUp = _settings.CrossfadeKeyUp;
-            int activeKeyDown = _settings.CrossfadeKeyDown;
-            int activeKeyMute = _settings.CrossfadeKeyMute;
+            var collections = _settings.Collections;
+            while (collectionTrackers.Count < collections.Count)
+                collectionTrackers.Add(new CollectionKeyTrackers());
+            while (_collectionPairIndices.Count < collections.Count)
+                _collectionPairIndices.Add(0);
 
-            int upVk = KeybindHelper.GetPrimaryVk(activeKeyUp);
-            int downVk = KeybindHelper.GetPrimaryVk(activeKeyDown);
-            int muteVk = KeybindHelper.GetPrimaryVk(activeKeyMute);
-
-            bool upModsOk = ModifiersMatch(activeKeyUp, ctrlDown, altDown, shiftDown);
-            bool downModsOk = ModifiersMatch(activeKeyDown, ctrlDown, altDown, shiftDown);
-            bool muteModsOk = ModifiersMatch(activeKeyMute, ctrlDown, altDown, shiftDown);
-
-            int upSteps = globalUpTracker.PollSteps(SampleKeyOnce(upVk), upModsOk, allowHoldRepeat: true);
-            int downSteps = globalDownTracker.PollSteps(SampleKeyOnce(downVk), downModsOk, allowHoldRepeat: true);
-            int muteSteps = globalMuteTracker.PollSteps(SampleKeyOnce(muteVk), muteModsOk, allowHoldRepeat: false);
-
-            if (upSteps > 0 || downSteps > 0 || muteSteps > 0)
+            for (int cIdx = 0; cIdx < collections.Count; cIdx++)
             {
-                bool invertActive = false;
-                ControlModeState activeCarouselMode = ControlModeState.Balance;
-                lock (_stateLock)
+                var col = collections[cIdx];
+                var validPairs = col.Pairs
+                    .Where(p => !string.IsNullOrWhiteSpace(p.Source1) && (p.IsSingleMode || !string.IsNullOrWhiteSpace(p.Source2)))
+                    .ToList();
+                if (validPairs.Count == 0) continue;
+
+                var tracker = collectionTrackers[cIdx];
+
+                int nextVk = KeybindHelper.GetPrimaryVk(col.CycleNextKey);
+                bool nextMods = ModifiersMatch(col.CycleNextKey, ctrlDown, altDown, shiftDown);
+                if (tracker.NextTracker.PollSteps(SampleKeyOnce(nextVk), nextMods, allowHoldRepeat: false) > 0)
                 {
-                    SnapHudToCarouselPair();
-                    if (_cfCycleIndex >= 0 && _cfCycleIndex < _settings.CrossfadeCycleList.Count)
-                    {
-                        var cp = _settings.CrossfadeCycleList[_cfCycleIndex];
-                        invertActive = cp.InvertDirection;
-                        activeCarouselMode = cp.ModeState;
-                    }
-                }
-
-                float baseSign = (_hudModeState == ControlModeState.Volume) ? 1.0f : -1.0f;
-                float dirMultiplier = invertActive ? -baseSign : baseSign;
-
-                // Crossfade uses full step size (divisor 1.0f), Balance uses half (divisor 2.0f), Volume uses full (1.0f)
-                float globalDivisor = (activeCarouselMode == ControlModeState.Balance) ? 2.0f : 1.0f;
-                float globalStepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / globalDivisor) / 100.0f;
-
-                var carouselPairState = GetOrCreatePairState(_settings.Source1, _settings.Source2, _hudIsSingleSource);
-
-                if (muteSteps > 0)
-                {
-                    carouselPairState.MuteState = AdvanceMuteState(carouselPairState.MuteState, GetCarouselActiveMuteMode(), _hudIsSingleSource);
+                    var (cycleItems, activeIdx) = PerformCollectionCycleStep(sessionCache, cIdx, +1);
+                    foreach (var ov in _overlays.ToList())
+                        ov.TriggerCycleWheel(cycleItems, activeIdx, +1);
+                    physicalInputRegistered = true;
                     immediateAudioUpdate = true;
                 }
-                if (upSteps > 0)
+
+                int prevVk = KeybindHelper.GetPrimaryVk(col.CyclePrevKey);
+                bool prevMods = ModifiersMatch(col.CyclePrevKey, ctrlDown, altDown, shiftDown);
+                if (tracker.PrevTracker.PollSteps(SampleKeyOnce(prevVk), prevMods, allowHoldRepeat: false) > 0)
                 {
-                    StepCrossfadeState(carouselPairState, dirMultiplier * globalStepIncrement * upSteps, activeCarouselMode);
+                    var (cycleItems, activeIdx) = PerformCollectionCycleStep(sessionCache, cIdx, -1);
+                    foreach (var ov in _overlays.ToList())
+                        ov.TriggerCycleWheel(cycleItems, activeIdx, -1);
+                    physicalInputRegistered = true;
+                    immediateAudioUpdate = true;
                 }
-                if (downSteps > 0)
+
+                int upVk = KeybindHelper.GetPrimaryVk(col.KeyUp);
+                int downVk = KeybindHelper.GetPrimaryVk(col.KeyDown);
+                int muteVk = KeybindHelper.GetPrimaryVk(col.KeyMute);
+
+                bool upMods = ModifiersMatch(col.KeyUp, ctrlDown, altDown, shiftDown);
+                bool downMods = ModifiersMatch(col.KeyDown, ctrlDown, altDown, shiftDown);
+                bool muteMods = ModifiersMatch(col.KeyMute, ctrlDown, altDown, shiftDown);
+
+                int upSteps = tracker.UpTracker.PollSteps(SampleKeyOnce(upVk), upMods, allowHoldRepeat: true);
+                int downSteps = tracker.DownTracker.PollSteps(SampleKeyOnce(downVk), downMods, allowHoldRepeat: true);
+                int muteSteps = tracker.MuteTracker.PollSteps(SampleKeyOnce(muteVk), muteMods, allowHoldRepeat: false);
+
+                if (upSteps > 0 || downSteps > 0 || muteSteps > 0)
                 {
-                    StepCrossfadeState(carouselPairState, -dirMultiplier * globalStepIncrement * downSteps, activeCarouselMode);
-                }
-
-                physicalInputRegistered = true;
-            }
-
-            // 2. Poll Standalone Pairs' Dedicated Keybinds -> Adjust that pair's audio & show it on HUD without overwriting carousel slot
-            var standalonePairs = _settings.StandalonePairs;
-            while (customPairTrackers.Count < standalonePairs.Count) customPairTrackers.Add(new PairKeyTrackers());
-
-            for (int i = 0; i < standalonePairs.Count; i++)
-            {
-                var pair = standalonePairs[i];
-                if (string.IsNullOrWhiteSpace(pair.Source1) || (!pair.IsSingleMode && string.IsNullOrWhiteSpace(pair.Source2)))
-                    continue;
-
-                var tracker = customPairTrackers[i];
-                int pUpVk = KeybindHelper.GetPrimaryVk(pair.KeyUp);
-                int pDownVk = KeybindHelper.GetPrimaryVk(pair.KeyDown);
-                int pMuteVk = KeybindHelper.GetPrimaryVk(pair.KeyMute);
-
-                bool pUpMods = ModifiersMatch(pair.KeyUp, ctrlDown, altDown, shiftDown);
-                bool pDownMods = ModifiersMatch(pair.KeyDown, ctrlDown, altDown, shiftDown);
-                bool pMuteMods = ModifiersMatch(pair.KeyMute, ctrlDown, altDown, shiftDown);
-
-                int pUpSteps = tracker.UpTracker.PollSteps(SampleKeyOnce(pUpVk), pUpMods, allowHoldRepeat: true);
-                int pDownSteps = tracker.DownTracker.PollSteps(SampleKeyOnce(pDownVk), pDownMods, allowHoldRepeat: true);
-                int pMuteSteps = tracker.MuteTracker.PollSteps(SampleKeyOnce(pMuteVk), pMuteMods, allowHoldRepeat: false);
-
-                if (pUpSteps > 0 || pDownSteps > 0 || pMuteSteps > 0)
-                {
-                    float baseSign = pair.IsSingleMode ? 1.0f : -1.0f;
-                    float pairDirMultiplier = pair.InvertDirection ? -baseSign : baseSign;
-                    
-                    float pairDivisor = (pair.ModeState == ControlModeState.Balance) ? 2.0f : 1.0f;
-                    float pairStepIncrement = (Math.Clamp(_settings.StepSize, 1, 100) / pairDivisor) / 100.0f;
-
-                    var pState = GetOrCreatePairState(pair.Source1, pair.Source2, pair.IsSingleMode);
-
-                    if (pMuteSteps > 0)
-                    {
-                        pState.MuteState = AdvanceMuteState(pState.MuteState, ResolveEffectiveMuteMode(pair.MuteMode), pair.IsSingleMode);
-                        immediateAudioUpdate = true;
-                    }
-                    if (pUpSteps > 0)
-                    {
-                        StepCrossfadeState(pState, pairDirMultiplier * pairStepIncrement * pUpSteps, pair.ModeState);
-                    }
-                    if (pDownSteps > 0)
-                    {
-                        StepCrossfadeState(pState, -pairDirMultiplier * pairStepIncrement * pDownSteps, pair.ModeState);
-                    }
+                    int activePairIdx = Math.Clamp(_collectionPairIndices[cIdx], 0, validPairs.Count - 1);
+                    var activePair = validPairs[activePairIdx];
 
                     lock (_stateLock)
                     {
-                        ShowPairOnHudTemporarily(pair);
+                        ActivateCollectionOnHud(cIdx, activePairIdx, pushStyleToOverlays: true);
                     }
-                    ApplyPairAudioOnly(sessionCache, pair.Source1, pair.Source2, pState, pair.ModeState);
+
+                    float baseSign = activePair.IsSingleMode ? 1.0f : -1.0f;
+                    float dirMultiplier = activePair.InvertDirection ? -baseSign : baseSign;
+                    float divisor = (activePair.ModeState == ControlModeState.Balance) ? 2.0f : 1.0f;
+                    float stepInc = (Math.Clamp(_settings.StepSize, 1, 100) / divisor) / 100.0f;
+
+                    var pState = GetOrCreatePairState(_hudSource1, _hudSource2, _hudIsSingleSource);
+
+                    if (muteSteps > 0)
+                    {
+                        pState.MuteState = AdvanceMuteState(pState.MuteState, col.MuteMode, _hudIsSingleSource);
+                        immediateAudioUpdate = true;
+                    }
+                    if (upSteps > 0)
+                    {
+                        StepCrossfadeState(pState, dirMultiplier * stepInc * upSteps, activePair.ModeState);
+                    }
+                    if (downSteps > 0)
+                    {
+                        StepCrossfadeState(pState, -dirMultiplier * stepInc * downSteps, activePair.ModeState);
+                    }
+
                     physicalInputRegistered = true;
                 }
             }
@@ -760,9 +807,6 @@ public class AudioCrossfaderWorker
                 ApplyVolumesForPair(sessionCache, _hudSource1, _hudSource2, _hudSource1Color, _hudSource2Color, shouldUpdateAudio, physicalInputRegistered);
             }
 
-            // HYBRID TURBO-POLLING:
-            // Stay at 500Hz (2ms) while animating, while the overlay is visible, or within 5 seconds of any knob input.
-            // Drop to 8ms only when completely idle so the first knob click still wakes 500Hz mode on tick 1!
             bool turboActive = isAnimating ||
                                audioUpdatePending ||
                                (now - lastActiveInputUtc).TotalMilliseconds < 5000.0 ||
